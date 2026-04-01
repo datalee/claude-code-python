@@ -157,6 +157,9 @@ setup/
 - [x] `remote/` — 远程控制 ✅ 2026-04-02
 - [x] `ink/` — Ink UI 框架 ✅ 2026-04-02
 
+### Bonus: Easter Eggs
+- [x] `buddy/` — 桌面宠物彩蛋 ✅ 2026-04-02
+
 ### Phase 4: 基础设施
 - [x] `constants/` — 常量定义 ✅ 2026-04-02
 - [x] `schemas/` — JSON Schema 校验 ✅ 2026-04-02
