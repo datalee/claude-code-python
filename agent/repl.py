@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import Callable, List, Optional, Any
 
 from agent.query_engine import QueryEngine, AgentConfig, AgentState
+from commands.base import CommandContext, CommandResult
+from commands.registry import get_command_registry, register_builtin_commands
 from hook.events import EventType, HookEvent, create_session_event
 from hook.registry import get_hook_registry
 
@@ -89,6 +91,10 @@ class REPL:
         self.engine = query_engine
         self.config = config or REPLConfig()
         self.hook_registry = get_hook_registry()
+        
+        # 初始化命令注册表
+        self.cmd_registry = get_command_registry()
+        register_builtin_commands()
         
         # 状态
         self._running: bool = False
@@ -269,113 +275,54 @@ class REPL:
     # 命令处理
     # =========================================================================
 
-    COMMANDS = {
-        "/quit": "退出 REPL",
-        "/exit": "退出 REPL",
-        "/q": "退出 REPL（简写）",
-        "/new": "开始新会话",
-        "/reset": "重置当前会话",
-        "/history": "显示命令历史",
-        "/clear": "清屏",
-        "/help": "显示帮助",
-        "/status": "显示当前状态",
-        "/stats": "显示统计信息",
-    }
-
     async def _handle_command(self, line: str) -> None:
-        """处理内置命令"""
-        cmd = line.split()[0].lower()
+        """处理命令（通过 CommandRegistry）"""
+        # 解析命令名称和参数
+        parts = line.split()
+        cmd_name = parts[0].lower()
+        args = parts[1:] if len(parts) > 1 else []
         
-        handlers = {
-            "/quit": self._cmd_quit,
-            "/exit": self._cmd_quit,
-            "/q": self._cmd_quit,
-            "/new": self._cmd_new,
-            "/reset": self._cmd_reset,
-            "/history": self._cmd_history,
-            "/clear": self._cmd_clear,
-            "/help": self._cmd_help,
-            "/status": self._cmd_status,
-            "/stats": self._cmd_stats,
-        }
+        # 查找命令
+        cmd = self.cmd_registry.get(cmd_name.lstrip("/"))
         
-        handler = handlers.get(cmd)
-        if handler:
-            await handler(line)
-        else:
-            print(f"Unknown command: {cmd}")
+        if cmd is None:
+            print(f"Unknown command: {cmd_name}")
             print("Type /help for available commands")
+            return
+        
+        # 构建命令上下文
+        from cost_tracker import CostTracker
+        cost_tracker = CostTracker() if hasattr(self, '_cost_tracker') else None
+        
+        context = CommandContext(
+            session_id=self._session_id or "unknown",
+            repl=self,
+            engine=self.engine,
+            hook_registry=self.hook_registry,
+            cost_tracker=cost_tracker,
+        )
+        
+        # 执行命令
+        try:
+            result = await cmd.execute(args, context)
+            
+            # 打印输出
+            if result.output:
+                print(result.output)
+            
+            # 如果命令返回错误
+            if not result.success and result.error:
+                print(f"Error: {result.error}")
+        
+        except Exception as e:
+            print(f"Command failed: {type(e).__name__}: {e}")
 
     async def _cmd_quit(self, line: str) -> None:
         """退出命令"""
         print("Goodbye!")
         self._running = False
 
-    async def _cmd_new(self, line: str) -> None:
-        """开始新会话"""
-        # 发送命令事件
-        await self._emit_command_event("new", line)
-        
-        # 重置上下文
-        self.engine.context.clear()
-        print("Started new session.")
-        
-        # 发送会话开始事件
-        await self._emit_session_event(EventType.SESSION_START)
 
-    async def _cmd_reset(self, line: str) -> None:
-        """重置当前会话"""
-        await self._emit_command_event("reset", line)
-        
-        self.engine.context.clear()
-        print("Session reset.")
-
-    async def _cmd_history(self, line: str) -> None:
-        """显示历史"""
-        try:
-            for i in range(1, readline.get_current_history_length() + 1):
-                item = readline.get_history_item(i)
-                if item:
-                    print(f"  {i}: {item}")
-        except Exception as e:
-            print(f"Error reading history: {e}")
-
-    async def _cmd_clear(self, line: str) -> None:
-        """清屏"""
-        # 跨平台清屏
-        os.system("cls" if sys.platform == "win32" else "clear")
-
-    async def _cmd_help(self, line: str) -> None:
-        """显示帮助"""
-        print("\n=== Claude Code REPL ===\n")
-        print("Commands:")
-        for cmd, desc in self.COMMANDS.items():
-            print(f"  {cmd:<12} {desc}")
-        print()
-        print("Tips:")
-        print("  - Multi-line input: end a line with \\ or :")
-        print("  - Ctrl+C: interrupt current operation")
-        print("  - Ctrl+D: exit REPL")
-        print("  - Ctrl+R: search command history")
-        print()
-
-    async def _cmd_status(self, line: str) -> None:
-        """显示状态"""
-        print(f"\n=== Status ===")
-        print(f"  Session ID: {self._session_id or 'N/A'}")
-        print(f"  State: {self.engine.state.value}")
-        print(f"  Iterations: {self.engine.iteration}")
-        print(f"  Messages: {len(self.engine.context)}")
-        print()
-
-    async def _cmd_stats(self, line: str) -> None:
-        """显示统计"""
-        stats = self.engine.context.estimate_total_tokens()
-        print(f"\n=== Statistics ===")
-        print(f"  Total Messages: {len(self.engine.context)}")
-        print(f"  Estimated Tokens: {stats}")
-        print(f"  Iterations: {self.engine.iteration}")
-        print()
 
     # =========================================================================
     # 事件
