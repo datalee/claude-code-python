@@ -308,6 +308,11 @@ def register_builtin_commands() -> None:
         ContextCommand,
         MemoryCommand,
         CompactCommand,
+        DiffCommand,
+        McpCommand,
+        SkillsCommand,
+        TasksCommand,
+        TeamCommand,
     )
     
     registry = get_command_registry()
@@ -326,3 +331,8 @@ def register_builtin_commands() -> None:
     registry.register(ContextCommand())
     registry.register(MemoryCommand())
     registry.register(CompactCommand())
+    registry.register(DiffCommand())
+    registry.register(McpCommand())
+    registry.register(SkillsCommand())
+    registry.register(TasksCommand())
+    registry.register(TeamCommand())

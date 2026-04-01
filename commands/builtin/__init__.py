@@ -21,6 +21,11 @@ from commands.builtin.doctor import DoctorCommand
 from commands.builtin.context import ContextCommand
 from commands.builtin.memory import MemoryCommand
 from commands.builtin.compact import CompactCommand
+from commands.builtin.diff import DiffCommand
+from commands.builtin.mcp import McpCommand
+from commands.builtin.skills import SkillsCommand
+from commands.builtin.tasks import TasksCommand
+from commands.builtin.team import TeamCommand
 
 __all__ = [
     "NewCommand",
@@ -37,4 +42,9 @@ __all__ = [
     "ContextCommand",
     "MemoryCommand",
     "CompactCommand",
+    "DiffCommand",
+    "McpCommand",
+    "SkillsCommand",
+    "TasksCommand",
+    "TeamCommand",
 ]
