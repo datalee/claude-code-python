@@ -8,12 +8,18 @@ from tool.builtin.bash import BashTool
 from tool.builtin.file_read import FileReadTool
 from tool.builtin.file_edit import FileEditTool
 from tool.builtin.glob import GlobTool
+from tool.builtin.config_tool import ConfigTool
+from tool.builtin.ask_user_question import AskUserQuestionTool
+from tool.builtin.todo_write import TodoWriteTool
 
 __all__ = [
     "BashTool",
     "FileReadTool",
     "FileEditTool",
     "GlobTool",
+    "ConfigTool",
+    "AskUserQuestionTool",
+    "TodoWriteTool",
 ]
 
 # Auto-register all builtin tools when this module is imported
@@ -22,7 +28,7 @@ def _register_builtin_tools() -> None:
     from tool.registry import get_tool_registry
     
     registry = get_tool_registry()
-    for tool_class in [BashTool, FileReadTool, FileEditTool, GlobTool]:
+    for tool_class in [BashTool, FileReadTool, FileEditTool, GlobTool, ConfigTool, AskUserQuestionTool, TodoWriteTool]:
         try:
             registry.register(tool_class())
         except ValueError:
