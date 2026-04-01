@@ -17,6 +17,10 @@ from commands.builtin.status import StatusCommand
 from commands.builtin.help import HelpCommand
 from commands.builtin.clear import ClearCommand
 from commands.builtin.config import ConfigCommand
+from commands.builtin.doctor import DoctorCommand
+from commands.builtin.context import ContextCommand
+from commands.builtin.memory import MemoryCommand
+from commands.builtin.compact import CompactCommand
 
 __all__ = [
     "NewCommand",
@@ -29,4 +33,8 @@ __all__ = [
     "HelpCommand",
     "ClearCommand",
     "ConfigCommand",
+    "DoctorCommand",
+    "ContextCommand",
+    "MemoryCommand",
+    "CompactCommand",
 ]
