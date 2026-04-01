@@ -147,7 +147,7 @@ setup/
 - [x] `setup/` — 首次运行引导 ✅ 2026-04-02
 
 ### Phase 2: 用户体验
-- [ ] `history` — 命令历史管理
+- [x] `history` — 命令历史管理 ✅ 2026-04-02
 - [ ] `bootstrap/` — 启动引导
 - [ ] `screens/` — REPL 富文本屏幕
 
