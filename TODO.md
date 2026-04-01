@@ -158,9 +158,9 @@ setup/
 - [ ] `ink/` — Ink UI 框架
 
 ### Phase 4: 基础设施
-- [ ] `constants/` — 常量定义
-- [ ] `schemas/` — JSON Schema 校验
-- [ ] `utils/` — 工具函数库
+- [x] `constants/` — 常量定义 ✅ 2026-04-02
+- [x] `schemas/` — JSON Schema 校验 ✅ 2026-04-02
+- [x] `utils/` — 工具函数库 ✅ 2026-04-02
 
 ---
 
