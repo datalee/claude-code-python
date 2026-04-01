@@ -143,7 +143,7 @@ setup/
 ### Phase 1: 核心增强
 - [x] `memdir/` — 记忆目录管理 + findRelevantMemories ✅ 2026-04-01
 - [x] `cost-tracker` — Token 消耗追踪 ✅ 2026-04-01
-- [ ] `commands/` — 完整命令系统
+- [x] `commands/` — 完整命令系统 ✅ 2026-04-02
 - [ ] `setup/` — 首次运行引导
 
 ### Phase 2: 用户体验
@@ -164,4 +164,4 @@ setup/
 
 ---
 
-*最后更新：2026-04-01*
+*最后更新：2026-04-02*
