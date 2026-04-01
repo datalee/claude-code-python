@@ -144,7 +144,7 @@ setup/
 - [x] `memdir/` — 记忆目录管理 + findRelevantMemories ✅ 2026-04-01
 - [x] `cost-tracker` — Token 消耗追踪 ✅ 2026-04-01
 - [x] `commands/` — 完整命令系统 ✅ 2026-04-02
-- [ ] `setup/` — 首次运行引导
+- [x] `setup/` — 首次运行引导 ✅ 2026-04-02
 
 ### Phase 2: 用户体验
 - [ ] `history` — 命令历史管理
