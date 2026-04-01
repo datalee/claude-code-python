@@ -68,6 +68,29 @@
 
 **对应 Claude Code 源码:** `src/memdir/*.ts`
 
+#### ✅ cost-tracker 模块（Token 消耗追踪）- 2026-04-01 完成
+> datalee/claude-code 源码：src/cost-tracker.ts
+
+| 文件 | 状态 | 说明 |
+|------|------|------|
+| `cost_tracker/__init__.py` | ✅ | 成本追踪核心实现 |
+
+**核心功能：**
+- ✅ Token 消耗统计（input/output/cache tokens）
+- ✅ 按模型分类统计（ModelUsage）
+- ✅ 美元成本计算（基于 Anthropic 定价）
+- ✅ 格式化成本报告（formatTotalCost）
+- ✅ 会话状态保存/恢复（saveCurrentSessionCosts / restoreCostStateForSession）
+- ✅ 代码变化追踪（lines added/removed）
+
+**定价参考：**
+- Claude Sonnet: $3/M input, $15/M output
+- Claude Opus: $15/M input, $75/M output
+- Cache read: $0.08/M (90% off)
+- Cache write: $3.75/M (75% off)
+
+**对应 Claude Code 源码:** `src/cost-tracker.ts`
+
 #### ✅ hook 模块（钩子系统）- 2026-04-01 完成
 > 事件驱动的自动化，执行 /new、/reset 等命令时触发
 
