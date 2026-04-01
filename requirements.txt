@@ -1,0 +1,22 @@
+# Core dependencies for Claude Code Python
+
+# Type checking and data validation (replaces TypeScript's Zod)
+pydantic>=2.0.0
+
+# CLI framework (replaces TypeScript's Commander.js)
+typer[all]>=0.12.0
+
+# Terminal rich output (colors, panels, markdown)
+rich>=13.0.0
+
+# Anthropic SDK for LLM API calls
+anthropic>=0.25.0
+
+# Token counting (for context management)
+tiktoken>=0.7.0
+
+# Optional: python-dotenv for .env file support
+python-dotenv>=1.0.0
+
+# Optional: asyncio debugging
+# aiohttp>=3.9.0  # for HTTP requests in tools

@@ -1,0 +1,271 @@
+"""
+FileEditTool - Create and edit files.
+
+Corresponds to: src/tools/FileEditTool.ts
+
+Provides file creation and editing capabilities.
+Supports:
+- Creating new files with content
+- Replacing text in existing files (search and replace)
+- Appending to files
+- Creating directories
+
+Security: WRITE scope, requires ASK permission (user must confirm).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import os
+import re
+from dataclasses import dataclass
+from enum import Enum
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from tool.base import Permission, PermissionMode, PermissionScope, Tool, ToolResult
+
+
+class EditMode(Enum):
+    """File edit operation types."""
+    CREATE = "create"
+    REPLACE = "replace"
+    APPEND = "append"
+    WRITE = "write"  # Overwrite entire file
+
+
+@dataclass
+class EditOperation:
+    """Represents a single edit operation."""
+    old_text: Optional[str] = None  # Text to find (None for create/append)
+    new_text: Optional[str] = None   # Replacement text
+    mode: EditMode = EditMode.WRITE
+
+
+class FileEditTool(Tool):
+    """
+    Create or edit files with search-and-replace operations.
+    
+    Corresponds to: src/tools/FileEditTool.ts
+    
+    Permission: WRITE scope, ASK mode (requires user confirmation).
+    
+    Input schema:
+        {
+            "path": string,            // Required: file path to edit
+            "operation": string,       // "create" | "replace" | "append" | "write"
+            "new_text": string,       // Text to write / replace with
+            "old_text": string,       // Text to find (for replace mode)
+            "create_dirs": boolean,   // Auto-create parent directories (default: false)
+        }
+        
+    Design notes:
+    - The "replace" operation uses exact text matching
+    - For regex replacement, old_text is treated as a regex pattern when re_search=true
+    - This implements the same "Read -> Edit -> Write" pattern as Claude Code's TS version
+    """
+
+    name = "edit"
+    description = (
+        "Create a new file or edit an existing file using search-and-replace. "
+        "For replacement, provide the exact old_text to find and new_text to replace it. "
+        "Use 'create' to create a new file, 'write' to overwrite entirely."
+    )
+
+    def __init__(self) -> None:
+        self.permission = Permission(
+            mode=PermissionMode.ASK,
+            scope=PermissionScope.WRITE,
+        )
+
+    def get_input_schema(self) -> Dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": "Path to the file to create or edit.",
+                },
+                "operation": {
+                    "type": "string",
+                    "enum": ["create", "replace", "append", "write"],
+                    "description": (
+                        "Edit operation type: "
+                        "'create' (new file), 'replace' (search and replace text), "
+                        "'append' (add to end of file), 'write' (overwrite entire file)"
+                    ),
+                },
+                "new_text": {
+                    "type": "string",
+                    "description": "Text to write / replace with.",
+                },
+                "old_text": {
+                    "type": "string",
+                    "description": (
+                        "Text to find for replacement. "
+                        "Must match exactly (including whitespace) for 'replace' mode."
+                    ),
+                },
+                "create_dirs": {
+                    "type": "boolean",
+                    "description": "Create parent directories if they don't exist. Default: false",
+                },
+                "re_search": {
+                    "type": "boolean",
+                    "description": "Treat old_text as a regex pattern. Default: false",
+                },
+            },
+            "required": ["path", "operation"],
+            "allOf": [
+                {
+                    "if": {"properties": {"operation": {"const": "replace"}}},
+                    "then": {"required": ["old_text", "new_text"]},
+                },
+                {
+                    "if": {"properties": {"operation": {"const": "write"}}},
+                    "then": {"required": ["new_text"]},
+                },
+            ],
+        }
+
+    async def execute(self, input_data: Dict[str, Any]) -> ToolResult:
+        """
+        Execute file edit operation.
+        
+        Args:
+            input_data: Contains path, operation, new_text, old_text, etc.
+            
+        Returns:
+            ToolResult with success message or error
+        """
+        path_str: str = input_data["path"]
+        operation: str = input_data["operation"]
+        new_text: Optional[str] = input_data.get("new_text", "")
+        old_text: Optional[str] = input_data.get("old_text")
+        create_dirs: bool = input_data.get("create_dirs", False)
+        re_search: bool = input_data.get("re_search", False)
+
+        # Permission check
+        allowed, reason = self.check_permission()
+        if not allowed:
+            return ToolResult.err(reason or "Permission denied")
+
+        path = Path(path_str).expanduser().resolve()
+
+        # Create parent directories if requested
+        if create_dirs and not path.parent.exists():
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            except Exception as e:
+                return ToolResult.err(f"Failed to create directories: {e}")
+
+        try:
+            result_text = await asyncio.to_thread(
+                self._edit_file, path, operation, new_text, old_text, re_search
+            )
+            return ToolResult.ok(
+                result_text,
+                path=str(path),
+                operation=operation,
+                size_bytes=path.stat().st_size if path.exists() else len(new_text or ""),
+            )
+        except FileNotFoundError:
+            return ToolResult.err(f"File not found: {path} (did you mean to use operation='create'?)")
+        except PermissionError:
+            return ToolResult.err(f"Permission denied: {path}")
+        except ValueError as e:
+            return ToolResult.err(f"Edit failed: {e}")
+        except Exception as e:
+            return ToolResult.err(f"Edit failed: {e}")
+
+    def _edit_file(
+        self,
+        path: Path,
+        operation: str,
+        new_text: Optional[str],
+        old_text: Optional[str],
+        re_search: bool,
+    ) -> str:
+        """
+        Perform the actual file edit operation.
+        
+        Args:
+            path: File path
+            operation: One of create, replace, append, write
+            new_text: New text for write/replace/create
+            old_text: Text to find for replace
+            re_search: Whether to treat old_text as regex
+            
+        Returns:
+            Success message describing what was done
+        """
+        mode = EditMode(operation)
+
+        if mode == EditMode.CREATE:
+            return self._create_file(path, new_text or "")
+        elif mode == EditMode.WRITE:
+            return self._write_file(path, new_text or "")
+        elif mode == EditMode.APPEND:
+            return self._append_file(path, new_text or "")
+        elif mode == EditMode.REPLACE:
+            if old_text is None:
+                raise ValueError("old_text is required for replace operation")
+            return self._replace_in_file(path, old_text, new_text or "", re_search)
+        else:
+            raise ValueError(f"Unknown edit mode: {operation}")
+
+    def _create_file(self, path: Path, content: str) -> str:
+        """Create a new file with content."""
+        if path.exists():
+            raise FileExistsError(f"File already exists: {path}. Use 'replace' or 'write' to modify it.")
+        path.write_text(content, encoding="utf-8")
+        return f"Created file: {path}"
+
+    def _write_file(self, path: Path, content: str) -> str:
+        """Overwrite file with new content."""
+        path.write_text(content, encoding="utf-8")
+        return f"Wrote {len(content)} characters to: {path}"
+
+    def _append_file(self, path: Path, content: str) -> str:
+        """Append content to end of file."""
+        if path.exists():
+            existing = path.read_text(encoding="utf-8")
+            content = existing + "\n" + content
+        path.write_text(content, encoding="utf-8")
+        return f"Appended {len(content)} characters to: {path}"
+
+    def _replace_in_file(
+        self, path: Path, old_text: str, new_text: str, re_search: bool
+    ) -> str:
+        """
+        Find and replace text in a file.
+        
+        Args:
+            path: File to edit
+            old_text: Text to find (exact match or regex if re_search=True)
+            new_text: Replacement text
+            re_search: Whether old_text is a regex pattern
+            
+        Returns:
+            Success message
+            
+        Raises:
+            FileNotFoundError: File doesn't exist
+            ValueError: old_text not found (or pattern doesn't match)
+        """
+        content = path.read_text(encoding="utf-8")
+
+        if re_search:
+            new_content, count = re.subn(old_text, new_text, content, count=1)
+        else:
+            if old_text not in content:
+                raise ValueError(
+                    f"Text not found in file: {old_text[:100]!r}..."
+                )
+            new_content = content.replace(old_text, new_text, 1)
+
+        path.write_text(new_content, encoding="utf-8")
+        return f"Replaced 1 occurrence in: {path}"
+
+    # TODO: Add multi-replace batch operation
+    # TODO: Add undo/rollback functionality
