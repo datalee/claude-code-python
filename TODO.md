@@ -149,13 +149,13 @@ setup/
 ### Phase 2: 用户体验
 - [x] `history` — 命令历史管理 ✅ 2026-04-02
 - [x] `bootstrap/` — 启动引导 ✅ 2026-04-02
-- [ ] `screens/` — REPL 富文本屏幕
+- [x] `screens/` — REPL 富文本屏幕 ✅ 2026-04-02
 
 ### Phase 3: 高级功能
 - [ ] `voice/` — 语音交互
 - [x] `plugins/` — 插件系统 ✅ 2026-04-02
 - [x] `remote/` — 远程控制 ✅ 2026-04-02
-- [ ] `ink/` — Ink UI 框架
+- [x] `ink/` — Ink UI 框架 ✅ 2026-04-02
 
 ### Phase 4: 基础设施
 - [x] `constants/` — 常量定义 ✅ 2026-04-02
