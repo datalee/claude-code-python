@@ -303,6 +303,7 @@ def register_builtin_commands() -> None:
         StatusCommand,
         HelpCommand,
         ClearCommand,
+        ConfigCommand,
     )
     
     registry = get_command_registry()
@@ -316,3 +317,4 @@ def register_builtin_commands() -> None:
     registry.register(StatusCommand())
     registry.register(HelpCommand())
     registry.register(ClearCommand())
+    registry.register(ConfigCommand())

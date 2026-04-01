@@ -16,6 +16,7 @@ from commands.builtin.history import HistoryCommand
 from commands.builtin.status import StatusCommand
 from commands.builtin.help import HelpCommand
 from commands.builtin.clear import ClearCommand
+from commands.builtin.config import ConfigCommand
 
 __all__ = [
     "NewCommand",
@@ -27,4 +28,5 @@ __all__ = [
     "StatusCommand",
     "HelpCommand",
     "ClearCommand",
+    "ConfigCommand",
 ]
