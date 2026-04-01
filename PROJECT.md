@@ -50,6 +50,24 @@
 
 **对应 Claude Code 源码:** `src/memory/*.ts`
 
+#### ✅ memdir 模块（记忆目录 + 语义检索）- 2026-04-01 完成
+> datalee/claude-code 源码：src/memdir/
+
+| 文件 | 状态 | 说明 |
+|------|------|------|
+| `memdir/__init__.py` | ✅ | 记忆目录管理 + Prompt 模板 |
+| `memdir/scanner.py` | ✅ | scanMemoryFiles + 解析 frontmatter |
+| `memdir/relevance.py` | ✅ | findRelevantMemories（LLM 语义选择） |
+
+**核心设计：**
+- ✅ 记忆以 .md 文件存储，每个文件一个记忆
+- ✅ MEMORY.md 是索引文件，列出所有记忆入口
+- ✅ Frontmatter 解析（name/description/type/tags）
+- ✅ LLM（Sonnet）选择相关记忆（不用 embedding）
+- ✅ 记忆类型分类：user/feedback/project/reference
+
+**对应 Claude Code 源码:** `src/memdir/*.ts`
+
 #### ✅ hook 模块（钩子系统）- 2026-04-01 完成
 > 事件驱动的自动化，执行 /new、/reset 等命令时触发
 
