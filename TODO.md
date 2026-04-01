@@ -153,8 +153,8 @@ setup/
 
 ### Phase 3: 高级功能
 - [ ] `voice/` — 语音交互
-- [ ] `plugins/` — 插件系统
-- [ ] `remote/` — 远程控制
+- [x] `plugins/` — 插件系统 ✅ 2026-04-02
+- [x] `remote/` — 远程控制 ✅ 2026-04-02
 - [ ] `ink/` — Ink UI 框架
 
 ### Phase 4: 基础设施
