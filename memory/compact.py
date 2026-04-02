@@ -329,14 +329,63 @@ class CompactionManager:
         """通过摘要进行压缩"""
         summarized = []
         
+        # 获取 API key
+        import os
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        
         for c in candidates:
             if c.can_summarize:
-                # TODO: 调用 LLM 生成摘要
-                # 目前使用简单的截断摘要
-                c.summary = c.content[:200] + "..." if len(c.content) > 200 else c.content
+                if api_key:
+                    # 使用 LLM 生成摘要
+                    c.summary = await self._generate_summary_with_llm(c.content, api_key)
+                else:
+                    # 回退到简单截断
+                    c.summary = c.content[:200] + "..." if len(c.content) > 200 else c.content
                 summarized.append(c.memory_id)
         
         return summarized
+
+    async def _generate_summary_with_llm(self, content: str, api_key: str) -> str:
+        """调用 LLM 生成摘要"""
+        import httpx
+        
+        prompt = f"""Please summarize the following text concisely, keeping the key information:
+
+{content[:4000]}
+
+Summary:"""
+        
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        
+        request_body = {
+            "model": "claude-sonnet-4-20250514",
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 512,
+            "temperature": 0.3,
+        }
+        
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers=headers,
+                    json=request_body,
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    for block in data.get("content", []):
+                        if block.get("type") == "text":
+                            return block.get("text", "")
+        except Exception:
+            pass
+        
+        # 失败时回退到截断
+        return content[:200] + "..." if len(content) > 200 else content
 
     async def _compact_selective(
         self,

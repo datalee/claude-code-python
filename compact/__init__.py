@@ -228,10 +228,41 @@ class SmartCompactor(Compactor):
         return "\n".join(lines)
 
     async def _call_anthropic(self, prompt: str) -> str:
-        """调用 Anthropic API"""
-        # 这个需要实际实现 API 调用
-        # 简化实现
-        return "[Summary of conversation - API call not implemented]"
+        """调用 Anthropic API 生成摘要"""
+        import httpx
+        
+        headers = {
+            "x-api-key": self.api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
+        
+        request_body = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": prompt}],
+            "max_tokens": 1024,
+            "temperature": 0.5,
+        }
+        
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=request_body,
+            )
+            
+            if response.status_code != 200:
+                raise RuntimeError(f"API error: {response.status_code}")
+            
+            data = response.json()
+            
+            # 提取文本内容
+            content = ""
+            for block in data.get("content", []):
+                if block.get("type") == "text":
+                    content += block.get("text", "")
+            
+            return content if content else "[Summary unavailable]"
 
 
 # ============================================================================

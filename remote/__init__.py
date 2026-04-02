@@ -314,8 +314,39 @@ class RemoteServer:
         if not command:
             raise ValueError("No command provided")
         
-        # TODO: 执行命令并返回结果
-        return {"executed": command, "result": "placeholder"}
+        import asyncio
+        import os
+        import sys
+        
+        # Windows 上用 PowerShell 执行
+        if sys.platform == "win32":
+            shell = ["powershell", "-Command"]
+            full_command = " ".join(f'"{c}"' if " " in c else c for c in command.split())
+        else:
+            shell = ["/bin/sh", "-c"]
+            full_command = command
+        
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *shell,
+                full_command,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+            
+            return {
+                "executed": command,
+                "returncode": proc.returncode,
+                "stdout": stdout.decode("utf-8", errors="replace"),
+                "stderr": stderr.decode("utf-8", errors="replace"),
+            }
+        except Exception as e:
+            return {
+                "executed": command,
+                "error": str(e),
+                "returncode": -1,
+            }
     
     def _handle_authenticate(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """认证"""
