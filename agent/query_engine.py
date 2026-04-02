@@ -286,63 +286,6 @@ Stay focused on the user's request. Ask clarifying questions if needed.
         """
         Call the LLM API with the current context.
         
-        Corresponds to: src/query.ts ~callLLM~ / API call portion
-        
-        Returns:
-            LLM response object with 'content' and 'tool_calls'
-            
-        Note:
-            This uses anthropic SDK by default.
-            Replace with openai-compatible client as needed.
-        """
-        # Import here to avoid hard dependency if not using LLM
-        try:
-            from anthropic import AsyncAnthropic
-        except ImportError:
-            # Fallback: mock response for testing
-            return await self._mock_llm_response()
-        
-        if self.llm_client is None:
-            # Read API key from environment
-            import os
-            api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("API_KEY")
-            if not api_key:
-                self.console.print("[yellow]Warning: ANTHROPIC_API_KEY not set, using mock response[/yellow]")
-                return await self._mock_llm_response()
-            self.llm_client = AsyncAnthropic(api_key=api_key)
-        
-        # Build request
-        messages = self.context.get_messages()
-        tools = self.tool_registry.get_llm_tools()
-        
-        request_options: Dict[str, Any] = {
-            "model": self.config.model,
-            "max_tokens": 8192,
-            "messages": messages,
-            "tools": tools,
-            "system": "",  # System is in messages[0] if present
-        }
-        
-        if self.config.temperature != 0:
-            request_options["temperature"] = self.config.temperature
-        
-        try:
-            if self.config.stream:
-                # Streaming response
-                async with self.llm_client.messages.stream(**request_options) as stream:
-                    response = await stream.get_final_message()
-                    return response
-            else:
-                response = await self.llm_client.messages.create(**request_options)
-                return response
-        except Exception as e:
-            self.console.print(f"[red]LLM API error: {e}[/red]")
-            return None
-
-    async def _call_llm(self) -> Any:
-        """
-        Call the LLM API with the current context.
-        
         Uses anthropic Python SDK which supports both native Anthropic API
         and OpenAI-compatible APIs (e.g., Volcengine) via base_url.
         """
