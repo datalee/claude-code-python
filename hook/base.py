@@ -297,12 +297,26 @@ class Hook(ABC):
 
     async def _execute_with_timeout(self, event: HookEvent) -> HookResult:
         """带超时的执行"""
+        import asyncio
+        
         if self.config.timeout_ms is None:
             return await self.handle(event)
         
-        # TODO: 实现超时控制
-        # 目前简化处理
-        return await self.handle(event)
+        timeout_seconds = self.config.timeout_ms / 1000
+        
+        try:
+            # 使用 asyncio.wait_for 实现超时控制
+            result = await asyncio.wait_for(
+                self.handle(event),
+                timeout=timeout_seconds
+            )
+            return result
+        except asyncio.TimeoutError:
+            return HookResult(
+                success=False,
+                message=f"Hook '{self.name}' execution timed out after {timeout_seconds}s",
+                data={"timeout_ms": self.config.timeout_ms},
+            )
 
     def __repr__(self) -> str:
         return f"<Hook name={self.name} status={self.status.value}>"
