@@ -428,14 +428,11 @@ Stay focused on the user's request. Ask clarifying questions if needed.
                     self.context.add_tool_result("User denied permission", tool_id)
                     continue
             
-            # Execute tool
+            # Execute tool with retry logic
             if self.config.verbose:
                 self.console.print(f"[dim]Executing {tool_name}...[/dim]")
             
-            try:
-                result: ToolResult = await tool.execute(tool_input)
-            except Exception as e:
-                result = ToolResult.err(f"Tool execution error: {e}")
+            result = await self._execute_with_retry(tool, tool_input, tool_id)
             
             # Check if this is a SkillTool result with new_messages in metadata
             new_messages = result.metadata.get("new_messages") if result.metadata else None
@@ -464,6 +461,79 @@ Stay focused on the user's request. Ask clarifying questions if needed.
                 if self.config.verbose and result.content:
                     self.console.print(f"[dim]{tool_name} result:[/dim] {result.content[:200]}")
 
+    async def _execute_with_retry(
+        self,
+        tool: Tool,
+        tool_input: Dict[str, Any],
+        tool_id: str,
+        max_retries: int = 3,
+        base_delay: float = 1.0,
+    ) -> ToolResult:
+        """
+        Execute a tool with exponential backoff retry logic.
+        
+        For transient errors (network, timeout), retries with increasing delays.
+        For permanent errors (permission denied, invalid input), does not retry.
+        
+        Args:
+            tool: The tool to execute
+            tool_input: Tool input parameters
+            tool_id: Tool call ID for tracking
+            max_retries: Maximum retry attempts (default: 3)
+            base_delay: Base delay in seconds (default: 1.0)
+            
+        Returns:
+            ToolResult from successful execution or final failure
+        """
+        import asyncio
+        import httpx
+        
+        last_error = None
+        
+        for attempt in range(max_retries + 1):
+            try:
+                result = await tool.execute(tool_input)
+                
+                # Check if result indicates a retryable error
+                if result.success:
+                    return result
+                
+                # Non-retryable failure (user error, etc.)
+                if not result.success and attempt == 0:
+                    return result
+                
+                last_error = result.error
+                
+            except httpx.TimeoutException as e:
+                last_error = f"Timeout: {e}"
+                if self.config.verbose:
+                    self.console.print(f"[yellow]Timeout on attempt {attempt + 1}, retrying...[/yellow]")
+                    
+            except httpx.ConnectError as e:
+                last_error = f"Connection error: {e}"
+                if self.config.verbose:
+                    self.console.print(f"[yellow]Connection error on attempt {attempt + 1}, retrying...[/yellow]")
+                    
+            except (OSError, IOError) as e:
+                # Network-related errors that might succeed on retry
+                last_error = f"Network error: {e}"
+                if self.config.verbose:
+                    self.console.print(f"[yellow]Network error on attempt {attempt + 1}, retrying...[/yellow]")
+                    
+            except Exception as e:
+                # Non-retryable error (programming bugs, etc.)
+                return ToolResult.err(f"Unexpected error: {e}")
+            
+            # Wait before retry (exponential backoff)
+            if attempt < max_retries:
+                delay = base_delay * (2 ** attempt)
+                if self.config.verbose:
+                    self.console.print(f"[dim]Waiting {delay}s before retry...[/dim]")
+                await asyncio.sleep(delay)
+        
+        # All retries exhausted
+        return ToolResult.err(f"Failed after {max_retries + 1} attempts. Last error: {last_error}")
+
     def _prompt_permission(self, tool: Tool) -> bool:
         """
         Prompt the user for permission to execute a tool.
@@ -479,9 +549,7 @@ Stay focused on the user's request. Ask clarifying questions if needed.
         Returns:
             True if user grants permission, False otherwise
         """
-        # In non-interactive / automated mode, default to allow for AUTOMATIC tools
-        # and deny for ASK tools (to be safe)
-        # Override this method for interactive CLI with proper prompts
+        # Print permission request panel
         self.console.print(
             Panel(
                 f"[bold]{tool.name}[/bold] wants to execute.\n"
@@ -492,9 +560,39 @@ Stay focused on the user's request. Ask clarifying questions if needed.
             )
         )
         
-        # For automated testing, skip prompts
-        # TODO: Add proper interactive prompt using typer prompt
-        return True
+        # Ask user for interactive confirmation
+        try:
+            from rich.prompt import Confirm
+            from rich.prompt import Prompt
+            
+            # Map tool permission modes to default behaviors
+            if tool.permission.mode.value == "automatic":
+                # AUTOMATIC tools: always allow
+                return True
+            elif tool.permission.mode.value == "ask":
+                # ASK tools: prompt user
+                if self.config.non_interactive:
+                    # Non-interactive mode: deny for safety
+                    return False
+                else:
+                    # Interactive mode: ask user
+                    return Confirm.ask(
+                        f"[yellow]Allow [bold]{tool.name}[/bold] to run?[/yellow]",
+                        default=False
+                    )
+            elif tool.permission.mode.value == "off":
+                # OFF mode: always deny
+                return False
+            else:
+                # Default: deny for safety
+                return False
+        
+        except (EOFError, KeyboardInterrupt):
+            # User cancelled
+            return False
+        except Exception:
+            # Fallback: deny for safety
+            return False
 
     # -------------------------------------------------------------------------
     # Output Formatting

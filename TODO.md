@@ -10,10 +10,10 @@
 
 | 文件 | 行 | 内容 | 状态 |
 |------|-----|------|------|
-| `agent/query_engine.py` | 496 | TODO: Add proper interactive prompt using typer prompt | 🔴 进行中 |
+| `agent/query_engine.py` | 496 | ✅ 交互式权限确认（typer prompt）| ✅ 已完成 |
 | `agent/query_engine.py` | 534 | TODO: Add support for resumable sessions (save/load context) | 🟡 待处理 |
-| `agent/query_engine.py` | 535 | TODO: Add support for multi-turn tool conversations | 🟡 待处理 |
-| `agent/query_engine.py` | 536 | TODO: Add proper error recovery and retry logic | 🟡 待处理 |
+| `agent/query_engine.py` | 535 | ✅ Agent 循环已支持多轮连续工具调用 | ✅ 已完成 |
+| `agent/query_engine.py` | 536 | ✅ 错误恢复和重试逻辑（指数退避） | ✅ 已完成 |
 
 ### 🟡 中优先级（影响用户体验）
 

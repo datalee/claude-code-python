@@ -98,6 +98,7 @@ class Config:
         self.workspace_path: Path = Path.cwd()
         self.max_iterations: int = 100
         self.stream: bool = True
+        self.non_interactive: bool = False  # 非交互模式用于测试
     
     @classmethod
     def from_env(cls) -> "Config":
@@ -108,6 +109,7 @@ class Config:
         config.model = os.environ.get("CLAUDE_CODE_MODEL", config.model)
         config.verbose = os.environ.get("CLAUDE_CODE_VERBOSE") == "1"
         config.max_iterations = int(os.environ.get("CLAUDE_CODE_MAX_ITERATIONS", "100"))
+        config.non_interactive = os.environ.get("CLAUDE_CODE_NON_INTERACTIVE") == "1"
         return config
 
 
@@ -404,15 +406,17 @@ def list_hooks() -> None:
 
 
 @app.command("repl")
-def repl() -> None:
+def repl(non_interactive: bool = typer.Option(False, "--non-interactive", "-n", help="Non-interactive mode (for testing)")) -> None:
     """
     启动交互式 REPL 模式。
 
     示例：
         python main.py repl
+        python main.py repl --non-interactive
     """
     config = Config.from_env()
     config.verbose = True  # REPL 模式默认 verbose
+    config.non_interactive = non_interactive
     
     initialize_system(config)
     
