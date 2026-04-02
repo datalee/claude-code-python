@@ -4,56 +4,42 @@ SkillsCommand - Skill 管理命令
 对应 Claude Code 源码: src/commands/skills/
 
 功能：
-- 列出可用 skills
+- 列出可用 skills（从 ~/.claude/skills/ 加载）
 - 显示 skill 详情
-- 启用/禁用 skill
-- 加载/卸载 skill
+- /skill <name> 调用 skill
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import List
 
 from commands.base import Command, CommandContext, CommandResult
-
-
-# 内置 Skills 列表（基于我们的 skill 模块）
-BUILTIN_SKILLS = {
-    "hello_world": {
-        "name": "Hello World",
-        "description": "Example skill demonstrating basic functionality",
-        "enabled": True,
-    },
-    "file_writer": {
-        "name": "File Writer",
-        "description": "Write content to files",
-        "enabled": True,
-    },
-    "shell": {
-        "name": "Shell Executor",
-        "description": "Execute shell commands",
-        "enabled": True,
-    },
-}
+from agent.context import Message, MessageRole
 
 
 class SkillsCommand(Command):
     """Skill 管理"""
 
     name = "skills"
-    description = "Manage available skills"
-    aliases = []
-    usage = """/skills
-    Manage skills.
+    description = "Manage and invoke skills"
+    aliases = ["skill"]
+    usage = """/skills [list|show <name>]
+    Manage skills loaded from ~/.claude/skills/
 
-Commands:
-  /skills list       - List all available skills
+  /skills list        - List all available skills
   /skills show <name> - Show skill details
-  /skills enable <name> - Enable a skill
-  /skills disable <name> - Disable a skill"""
+  /skill <name>       - Invoke a skill directly
+  /skill <query>      - Auto-match and invoke best skill"""
 
     def __init__(self) -> None:
-        self._skills: Dict[str, Dict[str, Any]] = BUILTIN_SKILLS.copy()
+        self._skill_runner = None
+    
+    @property
+    def runner(self):
+        if self._skill_runner is None:
+            from skill import get_skill_runner
+            self._skill_runner = get_skill_runner()
+        return self._skill_runner
 
     async def execute(self, args: List[str], context: CommandContext) -> CommandResult:
         """执行 skills 命令"""
@@ -69,70 +55,98 @@ Commands:
             elif subcmd == "show":
                 if len(args) < 2:
                     return CommandResult.err("Usage: /skills show <name>")
-                return CommandResult.ok(self._show_skill(args[1]))
+                return self._show_skill(args[1])
             
-            elif subcmd == "enable":
+            elif subcmd == "invoke":
                 if len(args) < 2:
-                    return CommandResult.err("Usage: /skills enable <name>")
-                return CommandResult.ok(self._set_enabled(args[1], True))
-            
-            elif subcmd == "disable":
-                if len(args) < 2:
-                    return CommandResult.err("Usage: /skills disable <name>")
-                return CommandResult.ok(self._set_enabled(args[1], False))
+                    return CommandResult.err("Usage: /skills invoke <name>")
+                return self._invoke_skill(args[1], context)
             
             else:
-                return CommandResult.err(f"Unknown subcommand: {subcmd}")
+                # 可能是直接调用 skill
+                return self._invoke_skill(subcmd, context)
         
         except Exception as e:
             return CommandResult.err(f"Skills error: {e}")
 
     def _list_skills(self) -> str:
         """列出所有 skills"""
-        lines = ["\n=== Available Skills ===\n"]
+        skills = self.runner.list_all()
         
-        enabled = []
-        disabled = []
+        if not skills:
+            lines = ["\n=== Available Skills ===\n"]
+            lines.append("No skills loaded.")
+            lines.append("")
+            lines.append("Skills are loaded from ~/.claude/skills/")
+            lines.append("Use /skills show <name> for details")
+            lines.append("")
+            return "\n".join(lines)
         
-        for name, skill in sorted(self._skills.items()):
-            entry = f"  {name}: {skill['description']}"
-            if skill.get("enabled", True):
-                enabled.append(entry)
+        lines = [f"\n=== Available Skills ({len(skills)}) ===\n"]
+        
+        for s in skills:
+            triggers = s.get("triggers", "-")
+            if triggers and triggers != "-":
+                lines.append(f"  /{s['slug']}")
+                lines.append(f"    {s['description']}")
+                lines.append(f"    triggers: {triggers}")
+                lines.append("")
             else:
-                disabled.append(entry)
+                lines.append(f"  /{s['slug']} - {s['description']}")
         
-        if enabled:
-            lines.append("Enabled:")
-            lines.extend(enabled)
-            lines.append("")
-        
-        if disabled:
-            lines.append("Disabled:")
-            lines.extend(disabled)
-            lines.append("")
-        
+        lines.append("")
+        lines.append(f"Total: {len(skills)} skills")
         lines.append("Use /skills show <name> for details")
         lines.append("")
         return "\n".join(lines)
 
-    def _show_skill(self, name: str) -> str:
+    def _show_skill(self, name: str) -> CommandResult:
         """显示 skill 详情"""
-        if name not in self._skills:
-            return f"\nSkill not found: {name}\n"
+        from skill import get_skill_loader
         
-        skill = self._skills[name]
-        lines = [f"\n=== Skill: {name} ===\n"]
-        lines.append(f"  Name: {skill['name']}")
-        lines.append(f"  Description: {skill['description']}")
-        lines.append(f"  Enabled: {skill.get('enabled', True)}")
+        loader = get_skill_loader()
+        skill = loader.get_skill(name)
+        
+        if not skill:
+            return CommandResult.err(f"Skill not found: {name}")
+        
+        lines = [f"\n=== Skill: {skill.slug} ===\n"]
+        lines.append(f"  Name: {skill.name}")
+        lines.append(f"  Description: {skill.description}")
+        lines.append(f"  Version: {skill.version}")
+        if skill.triggers:
+            lines.append(f"  Triggers: {', '.join(skill.triggers)}")
         lines.append("")
-        return "\n".join(lines)
-
-    def _set_enabled(self, name: str, enabled: bool) -> str:
-        """启用/禁用 skill"""
-        if name not in self._skills:
-            return f"\nSkill not found: {name}\n"
+        lines.append("--- Content Preview ---")
+        lines.append(skill.content[:500] + "..." if len(skill.content) > 500 else skill.content)
+        lines.append("")
         
-        self._skills[name]["enabled"] = enabled
-        status = "enabled" if enabled else "disabled"
-        return f"\nSkill '{name}' {status}.\n"
+        return CommandResult.ok("\n".join(lines))
+
+    def _invoke_skill(self, query: str, context: CommandContext) -> CommandResult:
+        """调用 skill"""
+        result = self.runner.invoke(query, {})
+        
+        if "error" in result:
+            return CommandResult.err(result["error"])
+        
+        skill = result["skill"]
+        prompt = result["prompt"]
+        
+        lines = [f"\n=== Invoking Skill: {skill.name} ===\n"]
+        lines.append(f"  Description: {skill.description}")
+        lines.append("")
+        lines.append("Skill prompt loaded. It will be prepended to your next message.")
+        lines.append("")
+        
+        # 将 skill prompt 存储到 context 以便下次使用
+        context.engine.context.add_message(
+            Message(role=MessageRole.SYSTEM, content=prompt)
+        )
+        
+        return CommandResult.ok("\n".join(lines))
+
+
+class SkillCommand(SkillsCommand):
+    """Skill 命令的别名"""
+    pass
