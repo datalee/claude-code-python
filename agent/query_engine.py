@@ -222,23 +222,21 @@ Stay focused on the user's request. Ask clarifying questions if needed.
                     return "Error: LLM call failed"
                 
                 # Process response
-                # 提取文本内容
+                # 提取文本内容（处理 content 中的 TextBlock 和 ToolUseBlock）
                 text_content = ""
+                tool_calls = []
                 if hasattr(response, 'content') and response.content:
                     for block in response.content:
+                        # TextBlock 有 text 属性
                         if hasattr(block, 'text'):
                             text_content += block.text
-                
-                # 提取工具调用（anthropic SDK 格式）
-                tool_calls = []
-                if hasattr(response, 'tool_calls') and response.tool_calls:
-                    for tc in response.tool_calls:
-                        # anthropic SDK 的 tool_call 格式
-                        tool_calls.append({
-                            "id": getattr(tc, 'id', f"tool_{len(tool_calls)}"),
-                            "name": getattr(tc, 'name', ''),
-                            "input": getattr(tc, 'input', {}) or {},
-                        })
+                        # ToolUseBlock 是工具调用
+                        elif hasattr(block, 'name') and hasattr(block, 'input'):
+                            tool_calls.append({
+                                "id": getattr(block, 'id', f"tool_{len(tool_calls)}"),
+                                "name": block.name,
+                                "input": block.input or {},
+                            })
                 
                 # Add assistant message to context
                 tc_objects: Optional[List[ToolCall]] = None
@@ -370,7 +368,7 @@ Stay focused on the user's request. Ask clarifying questions if needed.
         tools = self.tool_registry.get_llm_tools()
         
         # 转换消息格式
-        # 注意：Volcengine 等 OpenAI 兼容 API 不支持 system role，需要转换
+        # 注意：Volcengine 等 OpenAI 兼容 API 不支持 system role 和 tool role，需要转换
         is_openai = "volces" in api_base_url or "openai" in api_base_url or "ark." in api_base_url
         
         chat_messages = []
@@ -378,6 +376,7 @@ Stay focused on the user's request. Ask clarifying questions if needed.
         for msg in messages:
             role = msg.get("role", "user") if isinstance(msg, dict) else getattr(msg, "role", "user")
             content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", str(msg))
+            tool_call_id = getattr(msg, "tool_call_id", None) if not isinstance(msg, dict) else msg.get("tool_call_id")
             
             if role == "system":
                 if is_openai:
@@ -385,6 +384,13 @@ Stay focused on the user's request. Ask clarifying questions if needed.
                     system_content = content
                 else:
                     chat_messages.append({"role": role, "content": content})
+            
+            elif role == "tool" and is_openai:
+                # Volcengine 不支持 tool role，转为 user role
+                if tool_call_id:
+                    content = f"[Tool Result for {tool_call_id}]: {content}"
+                chat_messages.append({"role": "user", "content": content})
+            
             else:
                 chat_messages.append({"role": role, "content": content})
         
