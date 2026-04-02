@@ -11,6 +11,9 @@ from tool.builtin.glob import GlobTool
 from tool.builtin.config_tool import ConfigTool
 from tool.builtin.ask_user_question import AskUserQuestionTool
 from tool.builtin.todo_write import TodoWriteTool
+from tool.builtin.send_message import SendMessageTool
+from tool.builtin.notebook_edit import NotebookEditTool
+from tool.builtin.powershell import PowerShellTool
 
 __all__ = [
     "BashTool",
@@ -20,6 +23,9 @@ __all__ = [
     "ConfigTool",
     "AskUserQuestionTool",
     "TodoWriteTool",
+    "SendMessageTool",
+    "NotebookEditTool",
+    "PowerShellTool",
 ]
 
 # Auto-register all builtin tools when this module is imported
@@ -28,7 +34,7 @@ def _register_builtin_tools() -> None:
     from tool.registry import get_tool_registry
     
     registry = get_tool_registry()
-    for tool_class in [BashTool, FileReadTool, FileEditTool, GlobTool, ConfigTool, AskUserQuestionTool, TodoWriteTool]:
+    for tool_class in [BashTool, FileReadTool, FileEditTool, GlobTool, ConfigTool, AskUserQuestionTool, TodoWriteTool, SendMessageTool, NotebookEditTool, PowerShellTool]:
         try:
             registry.register(tool_class())
         except ValueError:
