@@ -344,7 +344,7 @@ async def _run_repl(engine: QueryEngine, config: Config) -> None:
         history_size=1000,
     )
     
-    repl = REPL(engine, config=repl_config)
+    repl = REPL(engine, config=repl_config, console=console)
     
     await repl.run()
 

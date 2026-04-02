@@ -1,40 +1,98 @@
 """
-REPL - 交互式命令行界面
+REPL - 交互式命令行界面 (改进版)
 
-提供交互式的读取-执行-打印循环。
-对应 Claude Code 源码: src/repl/*.ts
-参考: Claude Code CLI 交互界面
-
-核心功能：
-1. 命令行提示符
-2. 多行输入支持（检测缩进）
-3. Ctrl+C / Ctrl+D 处理
-4. 历史命令记录
-5. 交互式输出（Markdown 渲染）
+使用 prompt_toolkit 实现：
+- 命令补全（Tab）
+- 语法高亮
+- 更好的终端美化
+- 多行输入支持
 """
 
 from __future__ import annotations
 
 import asyncio
-import atexit
 import os
-import readline
 import sys
-import traceback
-from datetime import datetime
-from pathlib import Path
 from typing import Callable, List, Optional, Any
 
-from agent.query_engine import QueryEngine, AgentConfig, AgentState
-from commands.base import CommandContext, CommandResult
-from commands.registry import get_command_registry, register_builtin_commands
-from hook.events import EventType, HookEvent, create_session_event
-from hook.registry import get_hook_registry
+from prompt_toolkit import PromptSession
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.styles import Style
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.table import Table
 
+from agent.query_engine import QueryEngine, AgentConfig, AgentState
+
+
+# =============================================================================
+# 样式和主题
+# =============================================================================
+
+# 自定义样式
+REPL_STYLE = Style.from_dict({
+    "prompt": "#00d7ff bold",           # 青色提示符
+    "user-input": "#ffffff",            # 用户输入
+    "assistant": "#98fb98",             # 绿色助手输出
+    "error": "#ff6b6b bold",            # 红色错误
+    "warning": "#ffd700",                # 黄色警告
+    "info": "#00bfff",                  # 蓝色信息
+    "tool": "#ff79c6",                  # 粉色工具名
+    "command": "#8be9fd",               # 淡蓝色命令
+})
+
+
+
+
+
+# =============================================================================
+# 命令补全器
+# =============================================================================
+
+class REPLCompleter(Completer):
+    """REPL 命令补全器"""
+    
+    def __init__(self, commands: List[str]):
+        self.commands = sorted(commands)
+        # 添加常见操作
+        self.extras = [
+            "read ", "edit ", "glob ", "bash ", "search ",
+            "weather ", "web_search ", "web_fetch ",
+        ]
+    
+    def get_completions(self, document, complete_event):
+        text = document.text.lower()
+        
+        # 补全 / 命令
+        if text.startswith("/"):
+            for cmd in self.commands:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text))
+        
+        # 补全常见操作
+        elif " " in text:
+            prefix = text.split()[-1]
+            for extra in self.extras:
+                if extra.startswith(prefix):
+                    yield Completion(extra, start_position=-len(prefix))
+        
+        # 补全普通单词
+        else:
+            for cmd in self.commands:
+                if cmd.startswith(text):
+                    yield Completion(cmd, start_position=-len(text))
+
+
+# =============================================================================
+# REPL 配置
+# =============================================================================
 
 class REPLConfig:
     """REPL 配置"""
-
+    
     def __init__(
         self,
         prompt: str = ">>> ",
@@ -52,407 +110,207 @@ class REPLConfig:
         self.max_multiline_depth = max_multiline_depth
         self.quiet = quiet
         self.welcome_message = welcome_message or self._default_welcome()
-
+    
     def _default_welcome(self) -> str:
-        return """Claude Code Python - REPL Mode
-Type your request or /help for commands"""
+        return """[bold cyan]Claude Code Python[/bold cyan] - REPL Mode
 
+[dim]Type your request or [/dim][yellow]/help[/yellow][dim] for commands[/dim]"""
+
+
+# =============================================================================
+# 改进版 REPL
+# =============================================================================
 
 class REPL:
     """
-    交互式命令行解释器。
-    对应 Claude Code 源码: src/repl/REPL.ts
-    
-    提供用户与 QueryEngine 的交互界面：
-    1. 读取用户输入（支持多行）
-    2. 调用 QueryEngine 处理
-    3. 打印输出（Markdown 渲染）
-    4. 循环直到用户退出
-    
-    使用 readline 提供：
-    - 命令历史（上下箭头）
-    - 行编辑（左右箭头）
-    - 自动补全（Tab）
-    - Ctrl+R 搜索历史
-    
-    示例：
-        repl = REPL(query_engine)
-        await repl.run()
+    改进版 REPL，使用 prompt_toolkit 实现更好的用户体验。
     """
-
+    
     def __init__(
         self,
         query_engine: QueryEngine,
         config: Optional[REPLConfig] = None,
+        console: Optional[Console] = None,
     ) -> None:
-        """
-        初始化 REPL。
-        
-        Args:
-            query_engine: QueryEngine 实例
-            config: REPL 配置
-        """
         self.engine = query_engine
         self.config = config or REPLConfig()
-        self.hook_registry = get_hook_registry()
+        self.console = console or Console()
+        self.cmd_registry = self.engine.cmd_registry if hasattr(self.engine, 'cmd_registry') else None
         
-        # 初始化命令注册表
-        self.cmd_registry = get_command_registry()
-        register_builtin_commands()
+        # 创建补全器
+        self._setup_completer()
         
-        # 状态
-        self._running: bool = False
-        self._session_id: Optional[str] = None
-        self._input_lines: List[str] = []
-        self._multiline_depth: int = 0
-
-    # =========================================================================
-    # 主循环
-    # =========================================================================
-
+        # 创建 session（带历史记录）
+        # 注意：PromptSession 在某些环境下可能不可用（如管道输入）
+        self.session = None
+        self._use_prompt_toolkit = True
+        
+        try:
+            history = None
+            if self.config.history_file:
+                history = FileHistory(os.path.expanduser(self.config.history_file))
+            
+            self.session = PromptSession(
+                history=history,
+                completer=self.completer,
+                style=REPL_STYLE,
+            )
+        except Exception:
+            # prompt_toolkit 在非交互模式下不可用
+            self._use_prompt_toolkit = False
+            self.session = None
+        
+        self._is_multiline = False
+    
+    def _setup_completer(self):
+        """设置命令补全器"""
+        commands = [
+            "/help", "/clear", "/exit", "/quit", "/model", "/tools",
+            "/status", "/tasks", "/skills", "/cost", "/compact",
+            "/memory", "/config", "/context", "/diff", "/doctor",
+        ]
+        
+        # 添加 /skills 列出的具体 skill
+        try:
+            from skill import get_skill_loader
+            loader = get_skill_loader()
+            for s in loader.list_skills():
+                commands.append(f"/{s.slug}")
+        except:
+            pass
+        
+        self.completer = REPLCompleter(commands)
+    
     async def run(self) -> None:
         """
         运行 REPL 主循环。
-        
-        这是异步主入口，会阻塞直到用户退出。
         """
-        self._running = True
-        
-        # 设置 readline
-        self._setup_readline()
-        
-        # 注册清理函数
-        atexit.register(self._cleanup)
-        
-        # 发送会话开始事件
-        await self._emit_session_event(EventType.SESSION_START)
-        
         # 显示欢迎信息
         if not self.config.quiet:
-            self._print_welcome()
+            self.console.print(Panel(
+                "[bold cyan]Claude Code Python[/bold cyan] - Interactive Mode",
+                border_style="cyan",
+                subtitle="Type /help for commands, Ctrl+C to interrupt",
+            ))
         
         try:
-            while self._running:
+            while True:
                 try:
-                    # 读取一行输入
-                    line = await self._read_line()
+                    # 获取用户输入
+                    if self.session and self._use_prompt_toolkit:
+                        # 使用 prompt_toolkit（交互模式）
+                        user_input = await self.session.prompt()
+                    else:
+                        # 使用标准 input（管道模式或非交互模式）
+                        user_input = input(">>> ")
                     
-                    if line is None:  # EOF (Ctrl+D)
-                        self._handle_eof()
-                        break
+                    if not user_input.strip():
+                        continue
                     
-                    # 处理输入
-                    await self._process_line(line)
-                    
-                except KeyboardInterrupt:
-                    self._handle_interrupt()
-                except EOFError:
-                    self._handle_eof()
-                    break
-                except Exception as e:
-                    self._handle_error(e)
-        
-        finally:
-            # 发送会话结束事件
-            await self._emit_session_event(EventType.SESSION_END)
-            self._cleanup()
-
-    async def run_single(self, message: str) -> str:
-        """
-        执行单次查询（不进入交互模式）。
-        
-        Args:
-            message: 用户消息
-            
-        Returns:
-            助手的最终回复
-        """
-        return await self.engine.run(message)
-
-    # =========================================================================
-    # 输入处理
-    # =========================================================================
-
-    async def _read_line(self) -> Optional[str]:
-        """
-        读取一行输入。
-        
-        支持多行输入：当用户输入以冒号或反斜杠结尾时，
-        继续读取下一行。
-        
-        Returns:
-            用户输入的行，或 None（EOF）
-        """
-        self._input_lines = []
-        self._multiline_depth = 0
-        
-        while True:
-            # 选择提示符
-            if self._multiline_depth > 0:
-                prompt = self.config.multiline_prompt
-            else:
-                prompt = self.config.prompt
-            
-            # 读取一行（非异步，使用同步 readline）
-            try:
-                line = await asyncio.get_event_loop().run_in_executor(
-                    None, input, prompt
-                )
-            except (EOFError, OSError):
-                return None
-            
-            # 去掉末尾换行
-            if line is not None:
-                line = line.rstrip("\r\n")
-            
-            # 检查是否是多行继续
-            if self._should_continue(line):
-                self._input_lines.append(line.rstrip())
-                self._multiline_depth += 1
+                    # 处理命令
+                    if user_input.startswith("/"):
+                        await self._handle_command(user_input)
+                    else:
+                        # 发送给引擎处理
+                        await self._handle_query(user_input)
                 
-                # 防止无限嵌套
-                if self._multiline_depth >= self.config.max_multiline_depth:
+                except KeyboardInterrupt:
+                    self.console.print("\n[yellow]Interrupted. Press Ctrl+D to exit.[/yellow]")
+                    self._is_multiline = False
+                    continue
+                
+                except EOFError:
                     break
-                continue
-            
-            # 单行输入
-            if self._input_lines:
-                self._input_lines.append(line.rstrip() if line else "")
-                return "\n".join(self._input_lines)
-            
-            return line
-
-    def _should_continue(self, line: Optional[str]) -> bool:
-        """
-        检查是否应该继续读取多行输入。
         
-        触发条件：
-        - 行末是反斜杠 \\
-        - 行末是冒号 :
-        - 行末是开括号 ( [ {
-        - 当前在多行块内（检测缩进）
-        """
-        if line is None:
-            return False
+        except ExitREPL:
+            pass
         
-        stripped = line.strip()
-        
-        # 显式标记
-        if stripped.endswith("\\"):
-            return True
-        
-        # 括号匹配
-        if stripped.endswith(":") or stripped.endswith("{") or stripped.endswith("["):
-            return True
-        
-        # 多行内继续（检测缩进）
-        if self._multiline_depth > 0 and (stripped.startswith(" ") or stripped.startswith("\t")):
-            return True
-        
-        return False
-
-    async def _process_line(self, line: Optional[str]) -> None:
-        """
-        处理一行输入。
-        
-        Args:
-            line: 用户输入的行
-        """
-        # 空行跳过
-        if not line or not line.strip():
-            return
-        
-        # 命令处理
-        if line.startswith("/"):
-            await self._handle_command(line)
-            return
-        
-        # 发送到 QueryEngine
-        if self.config.quiet:
-            await self.engine.run(line)
-        else:
-            print()  # 空行分隔
-            await self.engine.run(line)
-            print()
-
-    # =========================================================================
-    # 命令处理
-    # =========================================================================
-
-    async def _handle_command(self, line: str) -> None:
-        """处理命令（通过 CommandRegistry）"""
-        # 解析命令名称和参数
-        parts = line.split()
-        cmd_name = parts[0].lower()
+        self.console.print("\n[dim]Goodbye![/dim]")
+    
+    async def _handle_command(self, command: str) -> None:
+        """处理 / 命令"""
+        parts = command.split()
+        cmd_name = parts[0].lstrip("/")
         args = parts[1:] if len(parts) > 1 else []
         
-        # 查找命令
-        cmd = self.cmd_registry.get(cmd_name.lstrip("/"))
+        # 内部命令处理
+        if cmd_name in ("exit", "quit"):
+            raise ExitREPL()
         
-        if cmd is None:
-            print(f"Unknown command: {cmd_name}")
-            print("Type /help for available commands")
+        elif cmd_name == "help":
+            self._print_help()
+        
+        elif cmd_name == "clear":
+            self.console.clear()
+        
+        else:
+            self.console.print(f"[yellow]Unknown command: {command}[/yellow]")
+            self.console.print("Type /help for available commands.")
+    
+    async def _handle_query(self, query: str) -> None:
+        """处理用户查询"""
+        # 注意：engine.run() 内部已经打印了响应，所以这里不再打印
+        try:
+            await self.engine.run(query)
+        except Exception as e:
+            self.console.print(f"[red bold]Error: {e}[/red bold]")
+    
+    def _print_help(self) -> None:
+        """打印帮助信息"""
+        table = Table(title="Available Commands", show_header=True)
+        table.add_column("Command", style="cyan")
+        table.add_column("Description", style="white")
+        
+        commands = [
+            ("/help", "Show this help"),
+            ("/clear", "Clear the screen"),
+            ("/exit, /quit", "Exit REPL"),
+            ("/model", "Show current model"),
+            ("/tools", "List available tools"),
+            ("/status", "Show status"),
+            ("/tasks", "Show tasks"),
+            ("/skills", "List available skills"),
+            ("/cost", "Show API cost"),
+            ("/compact", "Compact context"),
+            ("/memory", "Memory operations"),
+            ("/config", "Show configuration"),
+            ("/context", "Show context info"),
+            ("/diff", "Git diff"),
+            ("/doctor", "Run diagnostics"),
+        ]
+        
+        for cmd, desc in commands:
+            table.add_row(cmd, desc)
+        
+        self.console.print(table)
+    
+    def _print_response(self, response: str) -> None:
+        """打印响应，美化格式"""
+        if not response.strip():
             return
         
-        # 构建命令上下文
-        from cost_tracker import CostTracker
-        cost_tracker = CostTracker()
+        # 打印分隔线
+        self.console.print()
         
-        context = CommandContext(
-            session_id=self._session_id or "unknown",
-            repl=self,
-            engine=self.engine,
-            hook_registry=self.hook_registry,
-            cost_tracker=cost_tracker,
-        )
-        
-        # 执行命令
+        # 尝试渲染为 Markdown
         try:
-            result = await cmd.execute(args, context)
-            
-            # 打印输出
-            if result.output:
-                print(result.output)
-            
-            # 如果命令返回错误
-            if not result.success and result.error:
-                print(f"Error: {result.error}")
+            md = Markdown(response)
+            self.console.print(md)
+        except:
+            self.console.print(response)
         
-        except Exception as e:
-            print(f"Command failed: {type(e).__name__}: {e}")
-
-    async def _cmd_quit(self, line: str) -> None:
-        """退出命令"""
-        print("Goodbye!")
-        self._running = False
+        self.console.print()
 
 
+class ExitREPL(Exception):
+    """退出 REPL 的异常"""
+    pass
 
-    # =========================================================================
-    # 事件
-    # =========================================================================
 
-    async def _emit_command_event(self, command: str, line: str) -> None:
-        """发送命令事件"""
-        args = line.split()[1:] if len(line.split()) > 1 else []
-        
-        event = create_session_event(
-            EventType.COMMAND_NEW if command == "new" else EventType.COMMAND_RESET,
-            session_id=self._session_id,
-        )
-        
-        await self.hook_registry.emit(event)
+# 保留旧的兼容接口
+class OldREPL(REPL):
+    """保留旧版 REPL 以兼容"""
+    pass
 
-    async def _emit_session_event(self, event_type: EventType) -> None:
-        """发送会话事件"""
-        # 生成会话 ID
-        if self._session_id is None:
-            import uuid
-            self._session_id = f"session_{uuid.uuid4().hex[:12]}"
-        
-        event = create_session_event(
-            event_type,
-            session_id=self._session_id,
-        )
-        
-        await self.hook_registry.emit(event)
 
-    # =========================================================================
-    # readline 设置
-    # =========================================================================
-
-    def _setup_readline(self) -> None:
-        """配置 readline"""
-        # 历史文件
-        if self.config.history_file:
-            hist_file = os.path.expanduser(self.config.history_file)
-        else:
-            hist_file = os.path.expanduser("~/.claude_code_history")
-        
-        # 确保目录存在
-        Path(hist_file).parent.mkdir(parents=True, exist_ok=True)
-        
-        # 加载历史
-        if os.path.exists(hist_file):
-            try:
-                readline.read_history_file(hist_file)
-                readline.set_history_length(self.config.history_size)
-            except Exception:
-                pass
-        
-        # 注册清理函数（保存历史）
-        def save_history():
-            try:
-                readline.write_history_file(hist_file)
-            except Exception:
-                pass
-        
-        atexit.register(save_history)
-
-    def _cleanup(self) -> None:
-        """清理函数"""
-        try:
-            readline.write_history_file(os.path.expanduser("~/.claude_code_history"))
-        except Exception:
-            pass
-
-    # =========================================================================
-    # 信号处理
-    # =========================================================================
-
-    def _handle_interrupt(self) -> None:
-        """处理 Ctrl+C"""
-        if self.engine.is_running:
-            print("\n^C")
-            print("Interrupting...")
-            self.engine.stop()
-        else:
-            print("\n^C")
-            self._input_lines = []  # 取消当前输入
-
-    def _handle_eof(self) -> None:
-        """处理 EOF (Ctrl+D)"""
-        print("\n^D")
-        print("Goodbye!")
-        self._running = False
-
-    def _handle_error(self, error: Exception) -> None:
-        """处理异常"""
-        print(f"\nError: {type(error).__name__}: {error}")
-        if self.config.quiet:
-            traceback.print_exc()
-
-    # =========================================================================
-    # 输出
-    # =========================================================================
-
-    def _print_welcome(self) -> None:
-        """打印欢迎信息"""
-        print(self.config.welcome_message)
-
-    def _default_welcome(self) -> str:
-        """默认欢迎信息"""
-        return f"""
-=== Claude Code Python REPL ===
-Type /help for commands, /quit to exit.
-
-Current model: {self.engine.config.model}
-Session: {self._session_id or 'new'}
-"""
-
-    # =========================================================================
-    # 工具方法
-    # =========================================================================
-
-    def set_session_id(self, session_id: str) -> None:
-        """设置会话 ID"""
-        self._session_id = session_id
-
-    def get_session_id(self) -> Optional[str]:
-        """获取会话 ID"""
-        return self._session_id
-
-    @property
-    def is_running(self) -> bool:
-        """是否正在运行"""
-        return self._running
+__all__ = ["REPL", "REPLConfig", "ExitREPL"]
