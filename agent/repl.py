@@ -53,6 +53,10 @@ class REPLConfig:
         self.quiet = quiet
         self.welcome_message = welcome_message or self._default_welcome()
 
+    def _default_welcome(self) -> str:
+        return """Claude Code Python - REPL Mode
+Type your request or /help for commands"""
+
 
 class REPL:
     """
