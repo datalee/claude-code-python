@@ -58,18 +58,19 @@ This will:
             if hasattr(context.engine.context, 'compact'):
                 result = context.engine.context.compact()
                 if result:
-                    new_tokens = getattr(context.engine.context, 'estimate_total_tokens', lambda: 0)()
+                    new_tokens = context.engine.context.estimate_total_tokens()
                     saved = current_tokens - new_tokens
                     pct = (saved / current_tokens * 100) if current_tokens > 0 else 0
-                    lines.append(f"✅ Compacted successfully!")
-                    lines.append(f"   Saved ~{saved} tokens ({pct:.1f}%)")
-                    lines.append(f"   New token count: ~{new_tokens}")
+                    lines.append(f"Compact completed")
+                    lines.append(f"Messages before: {msg_count}")
+                    lines.append(f"Messages after: {len(context.engine.context.messages)}")
+                    lines.append(f"Saved ~{saved} tokens ({pct:.1f}%)")
                 else:
-                    lines.append("⚠️  No compaction needed")
-                    lines.append("   Context is already compact")
+                    lines.append("No compaction needed")
+                    lines.append("Context is already compact")
             else:
-                lines.append("ℹ️  Context compaction not available")
-                lines.append("   The compact() method is not implemented in this context")
+                lines.append("Context compaction not available")
+                lines.append("The compact() method is not implemented in this context")
             
             lines.append("")
             return CommandResult.ok("\n".join(lines))

@@ -307,6 +307,23 @@ class AgentContext:
         self._messages = system_messages
         self._tool_results.clear()
 
+    def compact(self, keep_recent: int = 10) -> bool:
+        """
+        Compact the context by removing old messages.
+        
+        Keeps system message and the most recent messages.
+        
+        Args:
+            keep_recent: Number of recent messages to keep (default 10)
+            
+        Returns:
+            True if compaction was performed
+        """
+        original_count = len(self._messages)
+        self.truncate_if_needed(keep_recent=keep_recent)
+        new_count = len(self._messages)
+        return new_count < original_count
+
     def __len__(self) -> int:
         return len(self._messages)
 

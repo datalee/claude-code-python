@@ -296,7 +296,7 @@ class REPL:
         
         # 构建命令上下文
         from cost_tracker import CostTracker
-        cost_tracker = CostTracker() if hasattr(self, '_cost_tracker') else None
+        cost_tracker = CostTracker()
         
         context = CommandContext(
             session_id=self._session_id or "unknown",
