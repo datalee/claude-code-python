@@ -50,8 +50,8 @@
 ### 缺失的重要功能
 | 功能 | 状态 | 说明 |
 |------|-------|------|
-| SkillTool 调用后 skill 内容未真正注入 | 🔴 进行中 | skill 内容显示但未生效 |
-| Interactive permission prompt | 🔴 进行中 | 权限提示未实现 |
+| SkillTool skill 内容注入 | ✅ 已修复 | 改为 system role 注入上下文 |
+| Interactive permission prompt | ✅ 已完成 | typer Confirm.ask + --non-interactive |
 | Session save/resume | 🟡 待处理 | 会话无法持久化 |
 
 ---

@@ -117,9 +117,9 @@ class SkillTool(Tool):
         if args:
             content = f"{content}\n\n## User Request\n\n{args}"
         
-        # 构建返回消息
+        # Skill 内容作为 system message 注入上下文，模型会遵循 skill 中的指令
         new_messages = [{
-            "role": "system" if loaded_skill.slug == "system" else "user",
+            "role": "system",
             "content": f"[Skill: {loaded_skill.name}]\n\n{content}"
         }]
         
@@ -173,9 +173,9 @@ class SkillTool(Tool):
         if args:
             content = f"{content}\n\n## User Request\n\n{args}"
         
-        # 构建新消息
+        # Skill 内容作为 system message 注入上下文，模型会遵循 skill 中的指令
         new_messages = [{
-            "role": "system" if loaded_skill.slug == "system" else "user",
+            "role": "system",
             "content": f"[Skill: {loaded_skill.name}]\n\n{content}"
         }]
         
