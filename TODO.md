@@ -29,8 +29,8 @@
 
 | 文件 | 行 | 内容 | 状态 |
 |------|-----|------|------|
-| `plugins/__init__.py` | 394 | TODO: 实现插件加载逻辑 | 🟢 延迟 |
-| `plugins/__init__.py` | 407 | TODO: 实现日志记录 | 🟢 延迟 |
+| `plugins/__init__.py` | 394 | ✅ install_plugin 本地/pip 安装 | ✅ 已完成 |
+| `plugins/__init__.py` | 407 | ✅ uninstall_plugin 卸载 | ✅ 已完成 |
 | `tool/builtin/file_edit.py` | 270 | ✅ multi-replace 批量替换 | ✅ 已完成 |
 | `tool/builtin/file_edit.py` | 271 | ✅ undo/rollback 撤销功能 | ✅ 已完成 |
 

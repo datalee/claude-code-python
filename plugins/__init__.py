@@ -391,8 +391,62 @@ class PluginManager:
         Returns:
             是否安装成功
         """
-        # TODO: 实现安装逻辑
-        return False
+        import shutil
+        import subprocess
+        from pathlib import Path
+        
+        plugins_dir = Path.home() / ".claude" / "plugins"
+        plugins_dir.mkdir(parents=True, exist_ok=True)
+        
+        try:
+            # Determine if source is a path or pip package
+            source_path = Path(source)
+            
+            if source_path.exists() and source_path.is_dir():
+                # Local directory - copy to plugins dir
+                target_dir = plugins_dir / name
+                
+                # Remove existing if present
+                if target_dir.exists():
+                    shutil.rmtree(target_dir)
+                
+                shutil.copytree(source_path, target_dir)
+                
+                # Try to load and register
+                self.registry.discover_plugins()
+                return True
+                
+            elif source.startswith("pip:"):
+                # pip package - install via pip
+                package_name = source[4:]  # Remove "pip:" prefix
+                result = subprocess.run(
+                    ["pip", "install", package_name],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    self.registry.discover_plugins()
+                    return True
+                else:
+                    print(f"pip install failed: {result.stderr}")
+                    return False
+            else:
+                # Try as pip package directly
+                result = subprocess.run(
+                    ["pip", "install", source],
+                    capture_output=True,
+                    text=True,
+                )
+                if result.returncode == 0:
+                    self.registry.discover_plugins()
+                    return True
+                else:
+                    print(f"pip install failed: {result.stderr}")
+                    return False
+                    
+        except Exception as e:
+            print(f"Plugin installation failed: {e}")
+            return False
     
     async def uninstall_plugin(self, name: str) -> bool:
         """
@@ -404,8 +458,39 @@ class PluginManager:
         Returns:
             是否卸载成功
         """
-        # TODO: 实现卸载逻辑
-        return False
+        import shutil
+        import subprocess
+        from pathlib import Path
+        
+        # Check if plugin exists in registry
+        plugin = self.registry.get(name)
+        if not plugin:
+            print(f"Plugin not found: {name}")
+            return False
+        
+        try:
+            # Check if it's a local plugin
+            plugins_dir = Path.home() / ".claude" / "plugins"
+            plugin_dir = plugins_dir / name
+            
+            if plugin_dir.exists():
+                # Local plugin - remove directory
+                shutil.rmtree(plugin_dir)
+            
+            # Try as pip package
+            result = subprocess.run(
+                ["pip", "uninstall", name, "-y"],
+                capture_output=True,
+                text=True,
+            )
+            
+            # Unregister regardless of pip result
+            self.registry._plugins.pop(name, None)
+            return True
+            
+        except Exception as e:
+            print(f"Plugin uninstallation failed: {e}")
+            return False
 
 
 # ============================================================================
