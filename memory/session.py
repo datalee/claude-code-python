@@ -316,26 +316,138 @@ class SessionMemory:
     # 私有方法
     # -------------------------------------------------------------------------
 
-    async def _load_relevant_memories(self, user_id: Optional[str]) -> None:
+    async def _load_relevant_memories(self, user_id: Optional[str], current_query: str = "") -> List[MemoryEntry]:
         """
         加载相关记忆到会话上下文。
         
         策略：
-        1. 加载今天的日记
-        2. 加载用户偏好
-        3. 加载最近的决策上下文
+        1. 提取查询关键词
+        2. 计算记忆条目相关性得分
+        3. 返回 top-k 相关记忆
+        
+        Args:
+            user_id: 用户 ID
+            current_query: 当前查询（用于关键词匹配）
+            
+        Returns:
+            按相关性排序的记忆条目列表
         """
-        # TODO: 实现向量搜索或关键词匹配
-        # 目前简单加载今天日记
+        # 加载所有记忆
+        all_entries = []
+        
+        # 加载每日日记
         today_entries = await self.memory.list_daily()
+        all_entries.extend(today_entries)
         
-        # 过滤相关条目
-        relevant = [
-            e for e in today_entries
-            if e.type == MemoryType.DAILY
-        ]
+        # 加载用户偏好
+        prefs = await self.memory.list_preferences(user_id or "")
+        all_entries.extend(prefs)
         
-        return relevant
+        # 加载决策记忆
+        decisions = await self.memory.list_decisions()
+        all_entries.extend(decisions)
+        
+        # 如果没有查询词，返回今天的记忆
+        if not current_query:
+            return [e for e in all_entries if e.type == MemoryType.DAILY][:10]
+        
+        # 提取查询关键词
+        query_keywords = self._extract_keywords(current_query)
+        
+        # 计算相关性得分
+        scored = []
+        for entry in all_entries:
+            score = self._calculate_relevance(entry, query_keywords)
+            if score > 0:
+                scored.append((score, entry))
+        
+        # 按得分排序，返回 top-10
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return [entry for _, entry in scored[:10]]
+    
+    def _extract_keywords(self, text: str) -> List[str]:
+        """
+        从文本中提取关键词。
+        
+        使用简单 TF-IDF 启发式：
+        - 去除停用词
+        - 提取高频词
+        - 提取重要实体（项目名、技术栈等）
+        
+        Args:
+            text: 输入文本
+            
+        Returns:
+            关键词列表
+        """
+        import re
+        
+        # 停用词列表
+        stop_words = {
+            '的', '了', '是', '在', '我', '有', '和', '就', '不', '人', '都', '一', '一个',
+            '上', '也', '很', '到', '说', '要', '去', '你', '会', '着', '没有', '看', '好',
+            '自己', '这', '那', '他', '她', '它', '们', '这个', '那个', '什么', '怎么',
+            'the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being',
+            'have', 'has', 'had', 'do', 'does', 'did', 'will', 'would', 'could', 'should',
+            'may', 'might', 'must', 'can', 'to', 'of', 'in', 'for', 'on', 'with',
+            'at', 'by', 'from', 'as', 'into', 'through', 'during', 'before', 'after',
+            'and', 'or', 'but', 'if', 'because', 'so', 'that', 'this', 'it', 'i',
+        }
+        
+        # 转为小写，分词
+        text_lower = text.lower()
+        words = re.findall(r'\b[a-zA-Z\u4e00-\u9fff]{2,}\b', text_lower)
+        
+        # 过滤停用词和短词
+        keywords = [w for w in words if w not in stop_words and len(w) > 2]
+        
+        # 统计词频
+        freq = {}
+        for w in keywords:
+            freq[w] = freq.get(w, 0) + 1
+        
+        # 按频率排序，取 top-10
+        sorted_words = sorted(freq.items(), key=lambda x: x[1], reverse=True)
+        return [w for w, _ in sorted_words[:10]]
+    
+    def _calculate_relevance(self, entry: MemoryEntry, keywords: List[str]) -> float:
+        """
+        计算记忆条目与关键词的相关性得分。
+        
+        Args:
+            entry: 记忆条目
+            keywords: 查询关键词列表
+            
+        Returns:
+            相关性得分 (0.0 - 1.0)
+        """
+        if not keywords:
+            return 0.0
+        
+        # 获取记忆文本
+        text = f"{entry.content} {entry.title}".lower()
+        
+        # 计算命中关键词数
+        matches = sum(1 for kw in keywords if kw.lower() in text)
+        
+        if matches == 0:
+            return 0.0
+        
+        # 得分 = 命中比例 * 权重
+        hit_ratio = matches / len(keywords)
+        
+        # 优先级权重
+        priority_weight = {
+            MemoryPriority.HIGH: 1.5,
+            MemoryPriority.MEDIUM: 1.0,
+            MemoryPriority.LOW: 0.5,
+        }.get(entry.priority, 1.0)
+        
+        # 时间衰减（越新的记忆权重越高）
+        age_hours = (time.time() - entry.created_at) / 3600
+        time_weight = max(0.5, 1.0 - (age_hours / (24 * 30)))  # 最多30天内衰减
+        
+        return min(1.0, hit_ratio * priority_weight * time_weight)
 
     async def _save_session_summary(self) -> MemoryEntry:
         """将会话摘要保存到每日日记"""
@@ -393,10 +505,46 @@ class SessionMemory:
         if session is None:
             return
         
-        # TODO: 实现追加到 MEMORY.md
-        pass
-
+        # 保存所有决策
+        for decision in session.decisions:
+            await self._save_decision_to_long_term(decision)
+    
     async def _save_decision_to_long_term(self, decision: str) -> None:
-        """保存单个高重要度决策到长期记忆"""
-        # TODO: 实现追加到 MEMORY.md
-        pass
+        """
+        保存单个高重要度决策到长期记忆。
+        
+        追加到 memory/long-term.md 文件。
+        
+        Args:
+            decision: 决策内容
+        """
+        # 长期记忆文件路径
+        long_term_file = self.memory.memory_dir / "long-term.md"
+        
+        # 格式化时间
+        dt = datetime.fromtimestamp(time.time()).strftime("%Y-%m-%d %H:%M")
+        
+        # 构建要追加的内容
+        entry = f"""
+## {dt}
+
+**决策**: {decision}
+
+"""
+        # 追加到文件
+        try:
+            long_term_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(long_term_file, "a", encoding="utf-8") as f:
+                f.write(entry)
+        except Exception as e:
+            self._log(f"Failed to save decision to long-term memory: {e}")
+        
+        # 同时添加到内存中的记忆列表
+        entry_obj = MemoryEntry(
+            id=f"decision_{int(time.time() * 1000)}",
+            content=decision,
+            type=MemoryType.LONG_TERM,
+            priority=MemoryPriority.HIGH,
+            tags=["decision"],
+        )
+        self._memory_entries.append(entry_obj)

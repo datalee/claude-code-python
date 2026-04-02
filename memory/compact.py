@@ -224,13 +224,109 @@ class CompactionManager:
                 memory.content if hasattr(memory, 'content') else str(memory)
             )
             
+            # 根据策略决定是否可以删除
+            can_delete = self._should_delete(memory)
+            
             candidate = CompactionCandidate(
                 memory_id=getattr(memory, 'id', str(memory)),
                 content=getattr(memory, 'content', str(memory)),
                 token_count=token_count,
                 priority=getattr(memory, 'priority', 'medium'),
                 age_seconds=time.time() - getattr(memory, 'created_at', time.time()),
-                can_delete=True,  # TODO: 根据策略决定
+                can_delete=can_delete,
+                can_summarize=True,
+            )
+            candidates.append(candidate)
+        
+        # 按优先级和年龄排序
+        # 策略：优先删除低优先级 + 旧记忆
+        def sort_key(c: CompactionCandidate) -> tuple:
+            priority_order = {"low": 0, "medium": 1, "high": 2}
+            priority = priority_order.get(c.priority, 1)
+            return (priority, -c.age_seconds)  # 低优先级、旧的先删
+        
+        candidates.sort(key=sort_key)
+        return candidates
+    
+    def _should_delete(self, memory: Any) -> bool:
+        """
+        根据策略决定记忆是否应该被删除。
+        
+        删除策略：
+        1. 长期记忆(LONG_TERM)不删除
+        2. 新记忆(< 1小时)不删除
+        3. 最近访问的记忆不删除
+        4. 高优先级记忆不删除
+        
+        Args:
+            memory: 记忆条目
+            
+        Returns:
+            是否可以删除
+        """
+        import time as time_module
+        
+        # 1. 检查记忆类型
+        memory_type = getattr(memory, 'type', None)
+        if memory_type is not None:
+            # LONG_TERM 类型不删除
+            if hasattr(memory_type, 'value') and memory_type.value == 'long_term':
+                return False
+        
+        # 2. 检查优先级
+        priority = getattr(memory, 'priority', 'medium')
+        if priority == 'high':
+            return False
+        
+        # 3. 检查年龄（少于1小时的记忆不删除）
+        created_at = getattr(memory, 'created_at', time_module.time())
+        age_seconds = time_module.time() - created_at
+        if age_seconds < 3600:  # 1小时
+            return False
+        
+        # 4. 检查最近访问
+        updated_at = getattr(memory, 'updated_at', created_at)
+        if updated_at > created_at and (time_module.time() - updated_at) < 86400:  # 24小时内更新过
+            return False
+        
+        # 满足所有条件，可以删除
+        return True
+        """
+        获取需要压缩的记忆候选项。
+        
+        Args:
+            memories: 记忆条目列表
+            current_tokens: 当前 token 数
+            target_freed_tokens: 目标释放 token 数
+            
+        Returns:
+            按优先级排序的压缩候选项列表
+        """
+        candidates = []
+        
+        # 计算需要释放多少 token
+        if target_freed_tokens is None:
+            target_freed_tokens = current_tokens - (self.max_tokens - self.reserve_tokens_floor)
+        
+        for memory in memories:
+            # 跳过高优先级记忆
+            if hasattr(memory, 'priority') and memory.priority == 'high':
+                continue
+            
+            token_count = self.count_tokens(
+                memory.content if hasattr(memory, 'content') else str(memory)
+            )
+            
+            # 根据策略决定是否可以删除
+            can_delete = self._should_delete(memory)
+            
+            candidate = CompactionCandidate(
+                memory_id=getattr(memory, 'id', str(memory)),
+                content=getattr(memory, 'content', str(memory)),
+                token_count=token_count,
+                priority=getattr(memory, 'priority', 'medium'),
+                age_seconds=time.time() - getattr(memory, 'created_at', time.time()),
+                can_delete=can_delete,
                 can_summarize=True,
             )
             candidates.append(candidate)

@@ -20,12 +20,12 @@ from __future__ import annotations
 
 from memory.base import MemoryBase, MemoryEntry
 from memory.session import SessionMemory
-from memory.compact import CompactManager, CompactionStrategy
+from memory.compact import CompactionManager, CompactionStrategy
 
 __all__ = [
     "MemoryBase",
     "MemoryEntry", 
     "SessionMemory",
-    "CompactManager",
+    "CompactionManager",
     "CompactionStrategy",
 ]

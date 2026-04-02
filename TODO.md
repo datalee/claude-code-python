@@ -20,10 +20,10 @@
 | 文件 | 行 | 内容 | 状态 |
 |------|-----|------|------|
 | `hook/base.py` | 303 | TODO: 实现插件时执行 | 🟡 待处理 |
-| `memory/compact.py` | 233 | can_delete=True, # TODO: 数据不可恢复确认 | 🟡 待处理 |
-| `memory/session.py` | 328 | TODO: 实现关键词精确匹配 | 🟡 待处理 |
-| `memory/session.py` | 396 | TODO: 实现追加到 MEMORY.md | 🟡 待处理 |
-| `memory/session.py` | 401 | TODO: 实现追加到 MEMORY.md | 🟡 待处理 |
+| `memory/compact.py` | 233 | ✅ 删除策略：LONG_TERM/高优/新记忆不删除 | ✅ 已完成 |
+| `memory/session.py` | 328 | ✅ 关键词精确匹配：TF-IDF + 优先级 + 时间衰减 | ✅ 已完成 |
+| `memory/session.py` | 396 | ✅ 追加到 memory/long-term.md | ✅ 已完成 |
+| `memory/session.py` | 401 | ✅ 单条决策追加到 long-term.md | ✅ 已完成 |
 
 ### 🟢 低优先级（nice to have）
 
