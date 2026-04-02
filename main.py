@@ -67,6 +67,7 @@ from tool.builtin import (
     SyntheticOutputTool,
 )
 from tool.builtin.skill_tool import SkillTool
+from tool.builtin.web_fetch import WebFetchTool, WebSearchTool, WeatherTool
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -147,6 +148,9 @@ def register_builtin_tools() -> None:
         (ReadMcpResourceTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
         (McpAuthTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
         (SkillTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
+        (WebFetchTool(), PermissionMode.AUTOMATIC, PermissionScope.NETWORK),
+        (WebSearchTool(), PermissionMode.AUTOMATIC, PermissionScope.NETWORK),
+        (WeatherTool(), PermissionMode.AUTOMATIC, PermissionScope.NETWORK),
     ]
     
     # WRITE 权限工具 (需询问)
