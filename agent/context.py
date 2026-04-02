@@ -324,6 +324,93 @@ class AgentContext:
         new_count = len(self._messages)
         return new_count < original_count
 
+    def save(self, path: "Path | str") -> str:
+        """
+        Save context to a JSON file for later resume.
+        
+        Saves:
+        - All messages (serialized as dicts)
+        - Tool results
+        - Max tokens setting
+        
+        Args:
+            path: File path to save to
+            
+        Returns:
+            Path to the saved file
+        """
+        import json
+        from pathlib import Path as PathLib
+        
+        path = PathLib(path) if isinstance(path, str) else path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        
+        data = {
+            "max_tokens": self.max_tokens,
+            "messages": [msg.to_dict() for msg in self._messages],
+            "tool_results": self._tool_results,
+        }
+        
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        
+        return str(path)
+    
+    @classmethod
+    def load(cls, path: "Path | str", system_prompt: Optional[str] = None) -> "AgentContext":
+        """
+        Load context from a JSON file.
+        
+        Args:
+            path: File path to load from
+            system_prompt: Optional new system prompt (replaces saved one if provided)
+            
+        Returns:
+            Loaded AgentContext instance
+        """
+        import json
+        from pathlib import Path as PathLib
+        
+        path = PathLib(path) if isinstance(path, str) else path
+        
+        if not path.exists():
+            raise FileNotFoundError(f"Context file not found: {path}")
+        
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        # Create new context
+        ctx = cls(
+            system_prompt=None,  # Will add system message manually if needed
+            max_tokens=data.get("max_tokens", cls.DEFAULT_MAX_TOKENS),
+        )
+        
+        # Load messages
+        ctx._messages = []
+        for msg_data in data.get("messages", []):
+            role_str = msg_data.get("role", "user")
+            # Skip system message if we're providing our own
+            if role_str == "system" and system_prompt:
+                continue
+            role = MessageRole(role_str)
+            msg = Message(
+                role=role,
+                content=msg_data.get("content", ""),
+                tool_calls=msg_data.get("tool_calls"),
+                tool_call_id=msg_data.get("tool_call_id"),
+                name=msg_data.get("name"),
+            )
+            ctx._messages.append(msg)
+        
+        # Load tool results
+        ctx._tool_results = data.get("tool_results", {})
+        
+        # Add system prompt if provided
+        if system_prompt:
+            ctx.add_message(Message(role=MessageRole.SYSTEM, content=system_prompt))
+        
+        return ctx
+
     def __len__(self) -> int:
         return len(self._messages)
 

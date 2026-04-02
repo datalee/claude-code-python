@@ -629,6 +629,6 @@ Stay focused on the user's request. Ask clarifying questions if needed.
         """Return True if the agent is currently processing."""
         return self.state in (AgentState.THINKING, AgentState.TOOL_CALLING)
 
-    # TODO: Add support for resumable sessions (save/load context)
-    # TODO: Add support for multi-turn tool conversations
-    # TODO: Add proper error recovery and retry logic
+    # TODO: Add support for resumable sessions (save/load context) - Moved to AgentContext.save/load
+    # Multi-turn tool conversations - Already supported by agent loop
+    # Error recovery and retry logic - Implemented in _execute_with_retry

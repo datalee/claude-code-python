@@ -52,7 +52,7 @@
 |------|-------|------|
 | SkillTool skill 内容注入 | ✅ 已修复 | 改为 system role 注入上下文 |
 | Interactive permission prompt | ✅ 已完成 | typer Confirm.ask + --non-interactive |
-| Session save/resume | 🟡 待处理 | 会话无法持久化 |
+| Session save/resume | ✅ 已完成 | AgentContext.save()/load() 方法 |
 
 ---
 
