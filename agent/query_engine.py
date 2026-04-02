@@ -222,8 +222,23 @@ Stay focused on the user's request. Ask clarifying questions if needed.
                     return "Error: LLM call failed"
                 
                 # Process response
-                text_content = response.content or ""
-                tool_calls = response.tool_calls or []
+                # 提取文本内容
+                text_content = ""
+                if hasattr(response, 'content') and response.content:
+                    for block in response.content:
+                        if hasattr(block, 'text'):
+                            text_content += block.text
+                
+                # 提取工具调用（anthropic SDK 格式）
+                tool_calls = []
+                if hasattr(response, 'tool_calls') and response.tool_calls:
+                    for tc in response.tool_calls:
+                        # anthropic SDK 的 tool_call 格式
+                        tool_calls.append({
+                            "id": getattr(tc, 'id', f"tool_{len(tool_calls)}"),
+                            "name": getattr(tc, 'name', ''),
+                            "input": getattr(tc, 'input', {}) or {},
+                        })
                 
                 # Add assistant message to context
                 tc_objects: Optional[List[ToolCall]] = None
@@ -330,10 +345,10 @@ Stay focused on the user's request. Ask clarifying questions if needed.
         """
         Call the LLM API with the current context.
         
-        Supports both Anthropic native API and OpenAI-compatible APIs (e.g., Volcengine).
+        Uses anthropic Python SDK which supports both native Anthropic API
+        and OpenAI-compatible APIs (e.g., Volcengine) via base_url.
         """
         import os
-        import httpx
         
         api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("API_KEY")
         if not api_key:
@@ -341,94 +356,47 @@ Stay focused on the user's request. Ask clarifying questions if needed.
             return await self._mock_llm_response()
         
         api_base_url = os.environ.get("ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1")
-        is_openai = "volces" in api_base_url or "openai" in api_base_url or "ark." in api_base_url
+        
+        # 初始化 LLM 客户端（anthropic SDK 自动处理兼容模式）
+        if self.llm_client is None:
+            try:
+                from anthropic import AsyncAnthropic
+                self.llm_client = AsyncAnthropic(api_key=api_key, base_url=api_base_url)
+            except ImportError:
+                self.console.print("[red]anthropic SDK not installed[/red]")
+                return await self._mock_llm_response()
         
         messages = self.context.get_messages()
         tools = self.tool_registry.get_llm_tools()
         
-        if is_openai:
-            return await self._call_openai_api(api_key, api_base_url, messages, tools)
-        else:
-            return await self._call_anthropic_api(api_key, api_base_url, messages, tools)
-
-    async def _call_openai_api(self, api_key: str, api_base_url: str, messages: List, tools: List) -> Any:
-        """Call OpenAI-compatible API (e.g., Volcengine)"""
-        import httpx
-        import json
-        
-        if "/v1" not in api_base_url:
-            url = f"{api_base_url}/v1/chat/completions"
-        else:
-            url = f"{api_base_url}/chat/completions"
-        
-        headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+        # 转换消息格式
+        # 注意：Volcengine 等 OpenAI 兼容 API 不支持 system role，需要转换
+        is_openai = "volces" in api_base_url or "openai" in api_base_url or "ark." in api_base_url
         
         chat_messages = []
+        system_content = None
         for msg in messages:
-            if isinstance(msg, dict):
-                chat_messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
+            role = msg.get("role", "user") if isinstance(msg, dict) else getattr(msg, "role", "user")
+            content = msg.get("content", "") if isinstance(msg, dict) else getattr(msg, "content", str(msg))
+            
+            if role == "system":
+                if is_openai:
+                    # OpenAI 兼容 API: 把 system 拼到第一条 user 消息里
+                    system_content = content
+                else:
+                    chat_messages.append({"role": role, "content": content})
             else:
-                chat_messages.append({"role": getattr(msg, "role", "user"), "content": getattr(msg, "content", str(msg))})
+                chat_messages.append({"role": role, "content": content})
         
-        openai_tools = [tool if isinstance(tool, dict) else {} for tool in tools]
-        
-        request_body: Dict[str, Any] = {
-            "model": self.config.model, "messages": chat_messages,
-            "max_tokens": 8192,
-        }
-        if self.config.temperature != 0:
-            request_body["temperature"] = self.config.temperature
-        
-        try:
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                response = await client.post(url, headers=headers, json=request_body)
-                if response.status_code != 200:
-                    self.console.print(f"[red]LLM API error: {response.status_code} - {response.text}[/red]")
-                    return None
-                data = response.json()
-                
-                class OpenAIResponse:
-                    def __init__(self, data):
-                        self.data = data
-                        self.content = ""
-                        if data.get("choices"):
-                            self.content = data["choices"][0].get("message", {}).get("content", "")
-                        self.tool_calls = []
-                        if data.get("choices"):
-                            message = data["choices"][0].get("message", {})
-                            if message.get("tool_calls"):
-                                for tc in message["tool_calls"]:
-                                    self.tool_calls.append({
-                                        "id": tc.get("id", ""),
-                                        "name": tc.get("function", {}).get("name", ""),
-                                        "input": json.loads(tc.get("function", {}).get("arguments", "{}")),
-                                    })
-                return OpenAIResponse(data)
-        except Exception as e:
-            self.console.print(f"[red]LLM API error: {e}[/red]")
-            return None
-
-    async def _call_anthropic_api(self, api_key: str, api_base_url: str, messages: List, tools: List) -> Any:
-        """Call Anthropic native API"""
-        try:
-            from anthropic import AsyncAnthropic
-        except ImportError:
-            self.console.print("[red]anthropic SDK not installed[/red]")
-            return await self._mock_llm_response()
-        
-        if self.llm_client is None:
-            self.llm_client = AsyncAnthropic(api_key=api_key, base_url=api_base_url)
-        
-        chat_messages = []
-        for msg in messages:
-            if isinstance(msg, dict):
-                chat_messages.append({"role": msg.get("role", "user"), "content": msg.get("content", "")})
-            else:
-                chat_messages.append({"role": getattr(msg, "role", "user"), "content": getattr(msg, "content", str(msg))})
+        # 如果有 system 内容且是 OpenAI 兼容，附加到首条 user 消息
+        if system_content and is_openai and chat_messages and chat_messages[0]["role"] == "user":
+            chat_messages[0]["content"] = f"[System: {system_content}]\n\n" + chat_messages[0]["content"]
         
         request_options: Dict[str, Any] = {
-            "model": self.config.model, "max_tokens": 8192,
-            "messages": chat_messages, "tools": tools,
+            "model": self.config.model,
+            "max_tokens": 8192,
+            "messages": chat_messages,
+            "tools": tools,
         }
         if self.config.temperature != 0:
             request_options["temperature"] = self.config.temperature
