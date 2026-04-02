@@ -228,30 +228,48 @@ class SmartCompactor(Compactor):
         return "\n".join(lines)
 
     async def _call_anthropic(self, prompt: str) -> str:
-        """调用 Anthropic API 生成摘要"""
+        """调用 API 生成摘要（支持 Anthropic 和 OpenAI 兼容格式）"""
         import httpx
-        
-        headers = {
-            "x-api-key": self.api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        }
-        
-        request_body = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 1024,
-            "temperature": 0.5,
-        }
         
         api_base_url = os.environ.get("ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1")
         
+        # 检测是否 OpenAI 兼容模式
+        is_openai = "volces" in api_base_url or "openai" in api_base_url or "ark." in api_base_url
+        
+        if is_openai:
+            # OpenAI 兼容格式（如 Volcengine）
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+            }
+            request_body = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1024,
+                "temperature": 0.5,
+            }
+            # Volcengine 需要 /v1 前缀
+            if "/v1" not in api_base_url:
+                url = f"{api_base_url}/v1/chat/completions"
+            else:
+                url = f"{api_base_url}/chat/completions"
+        else:
+            # Anthropic 原生格式
+            headers = {
+                "x-api-key": self.api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+            request_body = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 1024,
+                "temperature": 0.5,
+            }
+            url = f"{api_base_url}/messages"
+        
         async with httpx.AsyncClient(timeout=60.0) as client:
-            response = await client.post(
-                f"{api_base_url}/messages",
-                headers=headers,
-                json=request_body,
-            )
+            response = await client.post(url, headers=headers, json=request_body)
             
             if response.status_code != 200:
                 raise RuntimeError(f"API error: {response.status_code}")
@@ -259,10 +277,15 @@ class SmartCompactor(Compactor):
             data = response.json()
             
             # 提取文本内容
-            content = ""
-            for block in data.get("content", []):
-                if block.get("type") == "text":
-                    content += block.get("text", "")
+            if is_openai:
+                content = ""
+                if data.get("choices"):
+                    content = data["choices"][0].get("message", {}).get("content", "")
+            else:
+                content = ""
+                for block in data.get("content", []):
+                    if block.get("type") == "text":
+                        content += block.get("text", "")
             
             return content if content else "[Summary unavailable]"
 

@@ -339,7 +339,7 @@ class CompactionManager:
             if c.can_summarize:
                 if api_key:
                     # 使用 LLM 生成摘要
-                    c.summary = await self._generate_summary_with_llm(c.content, api_key)
+                    c.summary = await self._generate_summary_with_llm(c.content, api_key, api_base_url)
                 else:
                     # 回退到简单截断
                     c.summary = c.content[:200] + "..." if len(c.content) > 200 else c.content
@@ -347,8 +347,8 @@ class CompactionManager:
         
         return summarized
 
-    async def _generate_summary_with_llm(self, content: str, api_key: str) -> str:
-        """调用 LLM 生成摘要"""
+    async def _generate_summary_with_llm(self, content: str, api_key: str, api_base_url: str) -> str:
+        """调用 LLM 生成摘要（支持 Anthropic 和 OpenAI 兼容格式）"""
         import httpx
         
         prompt = f"""Please summarize the following text concisely, keeping the key information:
@@ -357,32 +357,52 @@ class CompactionManager:
 
 Summary:"""
         
-        headers = {
-            "x-api-key": api_key,
-            "anthropic-version": "2023-06-01",
-            "content-type": "application/json",
-        }
+        # 检测是否 OpenAI 兼容模式
+        is_openai = "volces" in api_base_url or "openai" in api_base_url or "ark." in api_base_url
         
-        request_body = {
-            "model": "claude-sonnet-4-20250514",
-            "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": 512,
-            "temperature": 0.3,
-        }
+        if is_openai:
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            }
+            request_body = {
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 512,
+                "temperature": 0.3,
+            }
+            # Volcengine 需要 /v1 前缀
+            if "/v1" not in api_base_url:
+                url = f"{api_base_url}/v1/chat/completions"
+            else:
+                url = f"{api_base_url}/chat/completions"
+        else:
+            headers = {
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            }
+            request_body = {
+                "model": "claude-sonnet-4-20250514",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 512,
+                "temperature": 0.3,
+            }
+            url = f"{api_base_url}/messages"
         
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
-                response = await client.post(
-                    f"{api_base_url}/messages",
-                    headers=headers,
-                    json=request_body,
-                )
+                response = await client.post(url, headers=headers, json=request_body)
                 
                 if response.status_code == 200:
                     data = response.json()
-                    for block in data.get("content", []):
-                        if block.get("type") == "text":
-                            return block.get("text", "")
+                    if is_openai:
+                        if data.get("choices"):
+                            return data["choices"][0].get("message", {}).get("content", "")
+                    else:
+                        for block in data.get("content", []):
+                            if block.get("type") == "text":
+                                return block.get("text", "")
         except Exception:
             pass
         
