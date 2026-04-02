@@ -44,6 +44,20 @@ from tool.builtin import (
     FileReadTool,
     FileEditTool,
     GlobTool,
+    ConfigTool,
+    AskUserQuestionTool,
+    TodoWriteTool,
+    SendMessageTool,
+    NotebookEditTool,
+    PowerShellTool,
+    ToolSearchTool,
+    BriefTool,
+    TeamCreateTool,
+    RemoteTriggerTool,
+    ListMcpResourcesTool,
+    ReadMcpResourceTool,
+    McpAuthTool,
+    SyntheticOutputTool,
 )
 
 # ---------------------------------------------------------------------------
@@ -112,37 +126,38 @@ def register_builtin_tools() -> None:
     """
     registry = get_tool_registry()
     
-    # FileReadTool - 只读，自动执行
-    read_tool = FileReadTool()
-    read_tool.permission = Permission(
-        mode=PermissionMode.AUTOMATIC,
-        scope=PermissionScope.READ,
-    )
-    registry.register(read_tool)
+    # READ 权限工具 (只读，自动执行)
+    read_tools = [
+        (FileReadTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
+        (GlobTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
+        (ConfigTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
+        (AskUserQuestionTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
+        (ToolSearchTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
+        (ListMcpResourcesTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
+        (ReadMcpResourceTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
+        (McpAuthTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
+    ]
     
-    # GlobTool - 只读，自动执行
-    glob_tool = GlobTool()
-    glob_tool.permission = Permission(
-        mode=PermissionMode.AUTOMATIC,
-        scope=PermissionScope.READ,
-    )
-    registry.register(glob_tool)
+    # WRITE 权限工具 (需询问)
+    write_tools = [
+        (FileEditTool(), PermissionMode.ASK, PermissionScope.WRITE),
+        (BashTool(), PermissionMode.ASK, PermissionScope.WRITE),
+        (TodoWriteTool(), PermissionMode.ASK, PermissionScope.WRITE),
+        (SendMessageTool(), PermissionMode.ASK, PermissionScope.WRITE),
+        (NotebookEditTool(), PermissionMode.ASK, PermissionScope.WRITE),
+        (PowerShellTool(), PermissionMode.ASK, PermissionScope.WRITE),
+        (TeamCreateTool(), PermissionMode.ASK, PermissionScope.WRITE),
+        (RemoteTriggerTool(), PermissionMode.ASK, PermissionScope.WRITE),
+        (SyntheticOutputTool(), PermissionMode.ASK, PermissionScope.WRITE),
+        (BriefTool(), PermissionMode.ASK, PermissionScope.WRITE),
+    ]
     
-    # FileEditTool - 写操作，需询问
-    edit_tool = FileEditTool()
-    edit_tool.permission = Permission(
-        mode=PermissionMode.ASK,
-        scope=PermissionScope.WRITE,
-    )
-    registry.register(edit_tool)
-    
-    # BashTool - 危险操作，需询问
-    bash_tool = BashTool()
-    bash_tool.permission = Permission(
-        mode=PermissionMode.ASK,
-        scope=PermissionScope.WRITE,
-    )
-    registry.register(bash_tool)
+    for tool, mode, scope in read_tools + write_tools:
+        tool.permission = Permission(mode=mode, scope=scope)
+        try:
+            registry.register(tool)
+        except ValueError:
+            pass  # Already registered
 
 
 def register_builtin_hooks() -> None:
@@ -325,20 +340,19 @@ def list_tools() -> None:
     示例：
         python main.py list-tools
     """
+    initialize_system(Config())
     registry = get_tool_registry()
-    tools = registry.list_hooks()
+    tools = registry.get_all_tools()
     
     console.print(f"\n[bold]Available tools ({len(tools)}):[/bold]\n")
     
     for tool in tools:
-        status = "[green]enabled[/green]" if tool.is_enabled else "[red]disabled[/red]"
-        
         console.print(
             Panel(
                 f"[dim]Permission:[/dim] {tool.permission.mode.value} | "
                 f"[dim]Scope:[/dim] {tool.permission.scope.value}\n\n"
                 f"{tool.description}",
-                title=f"[bold]{tool.name}[/bold] [{status}]",
+                title=f"[bold]{tool.name}[/bold]",
                 border_style="cyan",
             )
         )
@@ -448,9 +462,12 @@ def doctor() -> None:
         issues.append("tiktoken not installed (token counting limited)")
         console.print("[yellow]⚠[/yellow] tiktoken not installed")
     
+    # 初始化系统
+    initialize_system(Config())
+    
     # 检查工具注册
     registry = get_tool_registry()
-    tool_count = len(registry.list_hooks())
+    tool_count = len(registry.list_tools())
     console.print(f"[green]✓[/green] {tool_count} tools registered")
     
     # 检查钩子注册
