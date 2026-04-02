@@ -21,6 +21,7 @@ from tool.builtin.remote_trigger import RemoteTriggerTool
 from tool.builtin.list_mcp_resources import ListMcpResourcesTool
 from tool.builtin.read_mcp_resource import ReadMcpResourceTool
 from tool.builtin.mcp_auth import McpAuthTool
+from tool.builtin.synthetic_output import SyntheticOutputTool
 
 __all__ = [
     "BashTool",
@@ -40,6 +41,7 @@ __all__ = [
     "ListMcpResourcesTool",
     "ReadMcpResourceTool",
     "McpAuthTool",
+    "SyntheticOutputTool",
 ]
 
 # Auto-register all builtin tools when this module is imported
@@ -48,7 +50,7 @@ def _register_builtin_tools() -> None:
     from tool.registry import get_tool_registry
     
     registry = get_tool_registry()
-    for tool_class in [BashTool, FileReadTool, FileEditTool, GlobTool, ConfigTool, AskUserQuestionTool, TodoWriteTool, SendMessageTool, NotebookEditTool, PowerShellTool, ToolSearchTool, BriefTool, TeamCreateTool, RemoteTriggerTool, ListMcpResourcesTool, ReadMcpResourceTool, McpAuthTool]:
+    for tool_class in [BashTool, FileReadTool, FileEditTool, GlobTool, ConfigTool, AskUserQuestionTool, TodoWriteTool, SendMessageTool, NotebookEditTool, PowerShellTool, ToolSearchTool, BriefTool, TeamCreateTool, RemoteTriggerTool, ListMcpResourcesTool, ReadMcpResourceTool, McpAuthTool, SyntheticOutputTool]:
         try:
             registry.register(tool_class())
         except ValueError:
