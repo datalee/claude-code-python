@@ -31,8 +31,8 @@
 |------|-----|------|------|
 | `plugins/__init__.py` | 394 | TODO: 实现插件加载逻辑 | 🟢 延迟 |
 | `plugins/__init__.py` | 407 | TODO: 实现日志记录 | 🟢 延迟 |
-| `tool/builtin/file_edit.py` | 270 | TODO: Add multi-replace batch operation | 🟢 延迟 |
-| `tool/builtin/file_edit.py` | 271 | TODO: Add undo/rollback functionality | 🟢 延迟 |
+| `tool/builtin/file_edit.py` | 270 | ✅ multi-replace 批量替换 | ✅ 已完成 |
+| `tool/builtin/file_edit.py` | 271 | ✅ undo/rollback 撤销功能 | ✅ 已完成 |
 
 ---
 

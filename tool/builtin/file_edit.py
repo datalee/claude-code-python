@@ -88,11 +88,12 @@ class FileEditTool(Tool):
                 },
                 "operation": {
                     "type": "string",
-                    "enum": ["create", "replace", "append", "write"],
+                    "enum": ["create", "replace", "append", "write", "undo", "multi_replace"],
                     "description": (
                         "Edit operation type: "
                         "'create' (new file), 'replace' (search and replace text), "
-                        "'append' (add to end of file), 'write' (overwrite entire file)"
+                        "'append' (add to end of file), 'write' (overwrite entire file), "
+                        "'undo' (undo last edit), 'multi_replace' (batch replace)"
                     ),
                 },
                 "new_text": {
@@ -105,6 +106,18 @@ class FileEditTool(Tool):
                         "Text to find for replacement. "
                         "Must match exactly (including whitespace) for 'replace' mode."
                     ),
+                },
+                "replacements": {
+                    "type": "array",
+                    "description": "List of {old, new} pairs for multi_replace operation.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "old": {"type": "string"},
+                            "new": {"type": "string"},
+                        },
+                        "required": ["old"],
+                    },
                 },
                 "create_dirs": {
                     "type": "boolean",
@@ -124,6 +137,10 @@ class FileEditTool(Tool):
                 {
                     "if": {"properties": {"operation": {"const": "write"}}},
                     "then": {"required": ["new_text"]},
+                },
+                {
+                    "if": {"properties": {"operation": {"const": "multi_replace"}}},
+                    "then": {"required": ["replacements"]},
                 },
             ],
         }
@@ -160,6 +177,14 @@ class FileEditTool(Tool):
                 return ToolResult.err(f"Failed to create directories: {e}")
 
         try:
+            # Handle special operations
+            if operation == "undo":
+                return await asyncio.to_thread(self.undo, str(path))
+            elif operation == "multi_replace":
+                replacements = input_data.get("replacements", [])
+                return await asyncio.to_thread(self.multi_replace, str(path), replacements)
+            
+            # Normal edit operations
             result_text = await asyncio.to_thread(
                 self._edit_file, path, operation, new_text, old_text, re_search
             )
@@ -218,16 +243,25 @@ class FileEditTool(Tool):
         """Create a new file with content."""
         if path.exists():
             raise FileExistsError(f"File already exists: {path}. Use 'replace' or 'write' to modify it.")
+        # Save None as original_content to indicate file didn't exist (for undo)
+        self._save_for_undo(str(path), "create", None)
         path.write_text(content, encoding="utf-8")
         return f"Created file: {path}"
 
     def _write_file(self, path: Path, content: str) -> str:
         """Overwrite file with new content."""
+        # Save original content for undo
+        original = path.read_text(encoding="utf-8") if path.exists() else None
+        self._save_for_undo(str(path), "write", original)
         path.write_text(content, encoding="utf-8")
         return f"Wrote {len(content)} characters to: {path}"
 
     def _append_file(self, path: Path, content: str) -> str:
         """Append content to end of file."""
+        # Save original for undo
+        original = path.read_text(encoding="utf-8") if path.exists() else None
+        self._save_for_undo(str(path), "append", original)
+        
         if path.exists():
             existing = path.read_text(encoding="utf-8")
             content = existing + "\n" + content
@@ -254,6 +288,9 @@ class FileEditTool(Tool):
             ValueError: old_text not found (or pattern doesn't match)
         """
         content = path.read_text(encoding="utf-8")
+        
+        # Save original for undo
+        self._save_for_undo(str(path), "replace", content)
 
         if re_search:
             new_content, count = re.subn(old_text, new_text, content, count=1)
@@ -267,5 +304,101 @@ class FileEditTool(Tool):
         path.write_text(new_content, encoding="utf-8")
         return f"Replaced 1 occurrence in: {path}"
 
-    # TODO: Add multi-replace batch operation
-    # TODO: Add undo/rollback functionality
+    def _save_for_undo(self, path: str, operation: str, original_content: Optional[str]) -> None:
+        """Save file state for undo before modification."""
+        if path not in _edit_history:
+            _edit_history[path] = []
+        _edit_history[path].append({
+            "operation": operation,
+            "original_content": original_content,
+        })
+        # Limit history to last 50 operations per file
+        if len(_edit_history[path]) > 50:
+            _edit_history[path].pop(0)
+
+    def undo(self, path: str) -> ToolResult:
+        """
+        Undo the last edit operation on a file.
+        
+        Args:
+            path: Path to the file to undo
+            
+        Returns:
+            ToolResult with undo status
+        """
+        path_obj = Path(path)
+        
+        # Check if we have history for this file
+        if path not in _edit_history:
+            return ToolResult.err(f"No edit history found for: {path}")
+        
+        history = _edit_history[path]
+        if not history:
+            return ToolResult.err(f"No more operations to undo for: {path}")
+        
+        # Pop the last operation
+        last_backup = history.pop()
+        
+        # Restore the previous version
+        try:
+            if last_backup["original_content"] is None:
+                # File didn't exist before, delete it
+                if path_obj.exists():
+                    path_obj.unlink()
+                message = f"Deleted file (was newly created): {path}"
+            else:
+                # Restore original content
+                path_obj.write_text(last_backup["original_content"], encoding="utf-8")
+                message = f"Undid {last_backup['operation']} operation on: {path}"
+            
+            # Clean up if no more history
+            if not history:
+                del _edit_history[path]
+            
+            return ToolResult(success=True, content=message)
+        except Exception as e:
+            return ToolResult.err(f"Undo failed: {e}")
+    
+    def multi_replace(self, path: str, replacements: List[Dict[str, str]]) -> ToolResult:
+        """
+        Perform multiple search-replace operations in a single file.
+        
+        Args:
+            path: Path to the file
+            replacements: List of {"old": "...", "new": "..."} dicts
+            
+        Returns:
+            ToolResult with replacement count
+        """
+        path_obj = Path(path)
+        
+        if not path_obj.exists():
+            return ToolResult.err(f"File not found: {path}")
+        
+        # Save original for undo (single undo point for batch)
+        original_content = path_obj.read_text(encoding="utf-8")
+        self._save_for_undo(path, "multi_replace", original_content)
+        
+        content = original_content
+        total_count = 0
+        
+        for repl in replacements:
+            old_text = repl.get("old", "")
+            new_text = repl.get("new", "")
+            
+            if not old_text:
+                continue
+            
+            if old_text in content:
+                content = content.replace(old_text, new_text, 1)
+                total_count += 1
+        
+        if total_count == 0:
+            return ToolResult.err("No replacements made (patterns not found)")
+        
+        path_obj.write_text(content, encoding="utf-8")
+        return ToolResult(success=True, content=f"Replaced {total_count} occurrence(s) in: {path}")
+
+
+# Module-level edit history: path -> list of backups
+_edit_history: Dict[str, List[Dict[str, Any]]] = {}
