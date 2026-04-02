@@ -7,6 +7,8 @@ Constants Module - 常量定义
 
 from __future__ import annotations
 
+import os
+
 # ============================================================================
 # 版本信息
 # ============================================================================
@@ -18,9 +20,10 @@ __author__ = "Claude Code Python Team"
 # API 配置
 # ============================================================================
 
-# Anthropic API
-ANTHROPIC_API_BASE_URL = "https://api.anthropic.com/v1"
+# Anthropic API - 支持环境变量覆盖
+ANTHROPIC_API_BASE_URL = os.environ.get("ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1")
 ANTHROPIC_API_VERSION = "2023-06-01"
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("API_KEY")
 
 # 默认模型
 DEFAULT_MODEL = "claude-sonnet-4-20250514"

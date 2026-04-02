@@ -244,9 +244,11 @@ class SmartCompactor(Compactor):
             "temperature": 0.5,
         }
         
+        api_base_url = os.environ.get("ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1")
+        
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
-                "https://api.anthropic.com/v1/messages",
+                f"{api_base_url}/messages",
                 headers=headers,
                 json=request_body,
             )

@@ -25,6 +25,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.traceback import install
 
+# Load .env file if present
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv not installed
+
 # Install rich traceback handler
 install(show_locals=True)
 
@@ -83,6 +90,7 @@ class Config:
     
     def __init__(self):
         self.api_key: Optional[str] = None
+        self.api_base_url: str = "https://api.anthropic.com/v1"
         self.model: str = "claude-sonnet-4-20250514"
         self.verbose: bool = False
         self.workspace_path: Path = Path.cwd()
@@ -91,9 +99,10 @@ class Config:
     
     @classmethod
     def from_env(cls) -> "Config":
-        """从环境变量加载配置"""
+        """从环境变量加载配置（.env 文件也会被 python-dotenv 自动加载）"""
         config = cls()
         config.api_key = os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("API_KEY")
+        config.api_base_url = os.environ.get("ANTHROPIC_API_BASE_URL", config.api_base_url)
         config.model = os.environ.get("CLAUDE_CODE_MODEL", config.model)
         config.verbose = os.environ.get("CLAUDE_CODE_VERBOSE") == "1"
         config.max_iterations = int(os.environ.get("CLAUDE_CODE_MAX_ITERATIONS", "100"))

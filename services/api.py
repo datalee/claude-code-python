@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Union
 import httpx
 
 
-API_BASE_URL = "https://api.anthropic.com/v1"
+API_BASE_URL = os.environ.get("ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1")
 API_VERSION = "2023-06-01"
 
 

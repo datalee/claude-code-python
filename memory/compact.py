@@ -12,6 +12,7 @@ Compact Manager - 上下文压缩管理
 
 from __future__ import annotations
 
+import os
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -332,6 +333,7 @@ class CompactionManager:
         # 获取 API key
         import os
         api_key = os.environ.get("ANTHROPIC_API_KEY")
+        api_base_url = os.environ.get("ANTHROPIC_API_BASE_URL", "https://api.anthropic.com/v1")
         
         for c in candidates:
             if c.can_summarize:
@@ -371,7 +373,7 @@ Summary:"""
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
-                    "https://api.anthropic.com/v1/messages",
+                    f"{api_base_url}/messages",
                     headers=headers,
                     json=request_body,
                 )
