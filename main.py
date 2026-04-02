@@ -66,6 +66,7 @@ from tool.builtin import (
     McpAuthTool,
     SyntheticOutputTool,
 )
+from tool.builtin.skill_tool import SkillTool
 
 # ---------------------------------------------------------------------------
 # App setup
@@ -145,6 +146,7 @@ def register_builtin_tools() -> None:
         (ListMcpResourcesTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
         (ReadMcpResourceTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
         (McpAuthTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
+        (SkillTool(), PermissionMode.AUTOMATIC, PermissionScope.READ),
     ]
     
     # WRITE 权限工具 (需询问)

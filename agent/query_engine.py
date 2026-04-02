@@ -494,13 +494,32 @@ Stay focused on the user's request. Ask clarifying questions if needed.
             except Exception as e:
                 result = ToolResult.err(f"Tool execution error: {e}")
             
-            # Add result to context
-            result_content = result.content if result.success else (result.error or "Error")
-            self.context.add_tool_result(result_content, tool_id)
-            
-            # Print tool result in verbose mode
-            if self.config.verbose and result.content:
-                self.console.print(f"[dim]{tool_name} result:[/dim] {result.content[:200]}")
+            # Check if this is a SkillTool result with new_messages in metadata
+            new_messages = result.metadata.get("new_messages") if result.metadata else None
+            if tool_name == "Skill" and new_messages:
+                # SkillTool returns new messages that should be added to context
+                for msg in new_messages:
+                    # Convert dict to Message if needed
+                    if isinstance(msg, dict):
+                        from agent.context import Message, MessageRole
+                        role_str = msg.get("role", "user")
+                        role = MessageRole(role_str)
+                        content = msg.get("content", "")
+                        self.context.add_message(Message(role=role, content=content))
+                    else:
+                        self.context.add_message(msg)
+                if self.config.verbose:
+                    self.console.print(f"[dim]Skill loaded: {len(new_messages)} messages[/dim]")
+                # Add a tool result message indicating success
+                self.context.add_tool_result(f"Skill loaded: {result.metadata.get('skill_name', 'unknown')}", tool_id)
+            else:
+                # Normal tool result handling
+                result_content = result.content if result.success else (result.error or "Error")
+                self.context.add_tool_result(result_content, tool_id)
+                
+                # Print tool result in verbose mode
+                if self.config.verbose and result.content:
+                    self.console.print(f"[dim]{tool_name} result:[/dim] {result.content[:200]}")
 
     def _prompt_permission(self, tool: Tool) -> bool:
         """
