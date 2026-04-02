@@ -221,10 +221,10 @@ class WeatherTool(Tool):
                         "type": "string",
                         "description": "City name (e.g., 'Shenzhen', 'Beijing', 'Shanghai')"
                     },
-                    "format": {
+                    "forecast_day": {
                         "type": "string",
-                        "description": "Format: '3' for one-line, '2' for two-line, '1' for verbose (default: '2')",
-                        "default": "2"
+                        "description": "Forecast day: '0' for today, '1' for tomorrow, '2' for day after tomorrow (default: '0')",
+                        "default": "0"
                     }
                 },
                 "required": ["city"]
@@ -236,13 +236,14 @@ class WeatherTool(Tool):
         获取天气信息。
         """
         city = input_data.get("city", "")
-        format_type = input_data.get("format", "2")
+        forecast_day = input_data.get("forecast_day", "0")
         
         if not city:
             return ToolResult.err("City is required")
         
         try:
-            url = f"https://wttr.in/{city}?format={format_type}"
+            # wttr.in: 使用 ?format=j1 获取 JSON 格式的天气预报，包含 3 天的数据
+            url = f"https://wttr.in/{city}?format=j1"
             
             async with httpx.AsyncClient(timeout=30.0, verify=False) as client:
                 response = await client.get(url)
@@ -250,12 +251,48 @@ class WeatherTool(Tool):
                 if response.status_code != 200:
                     return ToolResult.err(f"Weather service error: HTTP {response.status_code}")
                 
-                # wttr.in 返回纯文本天气信息
-                weather_text = response.text.strip()
+                import json
+                data = json.loads(response.text)
+                
+                day_index = int(forecast_day) if forecast_day.isdigit() else 0
+                weather_list = data.get('weather', [])
+                if day_index >= len(weather_list):
+                    return ToolResult.err(f"Weather data for day {day_index} not available")
+                
+                day_data = weather_list[day_index]
+                max_temp = day_data.get('maxtempC', 'N/A')
+                min_temp = day_data.get('mintempC', 'N/A')
+                
+                # 获取天气描述 - 从 hourly 中午左右的数据
+                hourly = day_data.get('hourly', [])
+                desc = 'N/A'
+                for h in hourly:
+                    hour = int(h.get('time', '1200')[0:2])
+                    if hour >= 10 and hour <= 16:
+                        desc_list = h.get('weatherDesc', [{'value': 'N/A'}])
+                        if desc_list:
+                            desc = desc_list[0].get('value', 'N/A')
+                        break
+                
+                day_labels = {
+                    "0": "今天",
+                    "1": "明天", 
+                    "2": "后天"
+                }
+                day_label = day_labels.get(str(day_index), f"第{day_index}天")
+                
+                result = f"{city} {day_label}天气预报\n"
+                result += f"天气: {desc}\n"
+                result += f"最高温度: {max_temp}°C\n"
+                result += f"最低温度: {min_temp}°C"
                 
                 return ToolResult.ok(
-                    f"Weather for {city}:\n{weather_text}",
+                    result,
                     city=city,
+                    forecast_day=day_label,
+                    max_temp=max_temp,
+                    min_temp=min_temp,
+                    description=desc,
                     source="wttr.in"
                 )
         
