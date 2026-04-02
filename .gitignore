@@ -37,3 +37,10 @@ htmlcov/
 # Temporary files
 *.tmp
 *.temp
+
+# Environment
+.env
+.env.local
+
+# Memory/notes
+memory/
